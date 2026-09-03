@@ -25,6 +25,7 @@ struct RootView: View {
                 .transition(.opacity)
             }
         }
+        .tint(AzulaTheme.orange)
         .preferredColorScheme(.dark)
     }
 }

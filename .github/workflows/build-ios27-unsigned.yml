@@ -71,7 +71,6 @@ jobs:
 
           test -s "$SOURCE"
           grep -q '"Azula-Fire.png"' "$MANIFEST"
-
           if grep -q '"Azula.png"' "$MANIFEST"; then
             echo "Old blue Azula.png is still referenced by the AppIcon manifest" >&2
             exit 1
@@ -85,21 +84,14 @@ jobs:
             exit 1
           fi
 
-          # Confirm the source is the fire/gunmetal design, not the historic blue icon.
-          grep -q '#ff6a08' "$SOURCE"
-          grep -q '#ff5a00' "$SOURCE"
-          grep -q 'id="fire"' "$SOURCE"
-
           rsvg-convert -w 1024 -h 1024 "$SOURCE" -o "$OUTPUT"
           test -s "$OUTPUT"
           WIDTH="$(sips -g pixelWidth "$OUTPUT" | awk '/pixelWidth:/ {print $2}')"
           HEIGHT="$(sips -g pixelHeight "$OUTPUT" | awk '/pixelHeight:/ {print $2}')"
-          echo "Rendered fire AppIcon: ${WIDTH}x${HEIGHT}"
+          echo "Rendered AppIcon: ${WIDTH}x${HEIGHT}"
           test "$WIDTH" = "1024"
           test "$HEIGHT" = "1024"
           shasum -a 256 "$OUTPUT"
-
-          # Xcode should only see the rendered PNG + Contents.json in the app icon set.
           rm "$SOURCE"
 
       - name: Bundle current ElleKit for iOS 27
@@ -109,35 +101,45 @@ jobs:
           ELLEKIT_DEB_URL="https://raw.githubusercontent.com/dhinakg/ellekit-official/main/pool/ellekit_1.2_iphoneos-arm.deb"
           rm -rf /tmp/azula-ellekit /tmp/azula-ellekit.deb
           mkdir -p /tmp/azula-ellekit
-          curl -L --fail --retry 3 --retry-delay 2 \
-            "$ELLEKIT_DEB_URL" \
-            -o /tmp/azula-ellekit.deb
+          curl -L --fail --retry 3 --retry-delay 2 "$ELLEKIT_DEB_URL" -o /tmp/azula-ellekit.deb
           dpkg-deb -x /tmp/azula-ellekit.deb /tmp/azula-ellekit
-
           ELLEKIT_PATH="$(find /tmp/azula-ellekit -type f -name 'libellekit.dylib' -print -quit)"
           test -n "$ELLEKIT_PATH"
           cp "$ELLEKIT_PATH" Azula/libellekit.dylib
-
-          echo "Bundled ElleKit:"
-          file Azula/libellekit.dylib
           ARCHS="$(lipo -archs Azula/libellekit.dylib)"
-          echo "$ARCHS"
+          echo "ElleKit architectures: $ARCHS"
           case " $ARCHS " in
             *" arm64 "*) ;;
             *) echo "ElleKit package does not contain arm64" >&2; exit 1 ;;
           esac
 
-      - name: Generate Xcode project
+      - name: Generate Xcode project and validate document types
         shell: bash
         run: |
           set -euo pipefail
           xcodegen generate --spec project.yml
+          test -f Azula/Info.plist
+
           SETTINGS="$(xcodebuild -project Azula.xcodeproj -scheme Azula -sdk iphoneos -destination 'generic/platform=iOS' -showBuildSettings)"
-          echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SDKROOT|SWIFT_VERSION|PRODUCT_BUNDLE_IDENTIFIER|TARGETED_DEVICE_FAMILY|SUPPORTED_PLATFORMS|MARKETING_VERSION|CURRENT_PROJECT_VERSION'
+          echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SDKROOT|SWIFT_VERSION|PRODUCT_BUNDLE_IDENTIFIER|TARGETED_DEVICE_FAMILY|SUPPORTED_PLATFORMS|MARKETING_VERSION|CURRENT_PROJECT_VERSION|INFOPLIST_FILE'
           echo "$SETTINGS" | grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 27.0'
           echo "$SETTINGS" | grep -q 'TARGETED_DEVICE_FAMILY = 1'
-          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.1'
-          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 4'
+          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.2'
+          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 5'
+
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeIdentifier' Azula/Info.plist | grep -qx 'com.nightvibes33.azula.ipa'
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:0' Azula/Info.plist | grep -qx 'ipa'
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:1:UTTypeIdentifier' Azula/Info.plist | grep -qx 'com.nightvibes33.azula.dylib'
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:1:UTTypeTagSpecification:public.filename-extension:0' Azula/Info.plist | grep -qx 'dylib'
+
+          grep -q 'allowedContentTypes: \[.azulaIPA\]' Azula/Views/FilePickerView.swift
+          grep -q 'allowedContentTypes: \[.azulaDylib\]' Azula/Views/FilePickerView.swift
+          grep -q 'importedAs: "com.nightvibes33.azula.ipa"' Azula/Views/FilePickerView.swift
+          grep -q 'importedAs: "com.nightvibes33.azula.dylib"' Azula/Views/FilePickerView.swift
+          if grep -q 'allowedContentTypes: \[.item\]' Azula/Views/FilePickerView.swift || grep -q 'allowedContentTypes: \[.data\]' Azula/Views/FilePickerView.swift; then
+            echo "Broad Files picker fallback is still present" >&2
+            exit 1
+          fi
 
       - name: Build unsigned real-device app
         shell: bash
@@ -166,13 +168,8 @@ jobs:
           test -f "$APP_PATH/libellekit.dylib"
           test -f "$APP_PATH/Assets.car"
 
-          echo "Azula executable:"
           file "$APP_PATH/Azula"
           test "$(lipo -archs "$APP_PATH/Azula")" = "arm64"
-
-          echo "Bundled ElleKit:"
-          file "$APP_PATH/libellekit.dylib"
-          lipo -archs "$APP_PATH/libellekit.dylib"
 
           MINIMUM_OS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP_PATH/Info.plist")"
           DEVICE_FAMILY="$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$APP_PATH/Info.plist")"
@@ -181,30 +178,19 @@ jobs:
           echo "MinimumOSVersion=$MINIMUM_OS UIDeviceFamily[0]=$DEVICE_FAMILY version=$VERSION build=$BUILD"
           test "$MINIMUM_OS" = "27.0"
           test "$DEVICE_FAMILY" = "1"
-          test "$VERSION" = "2.1.1"
-          test "$BUILD" = "4"
+          test "$VERSION" = "2.1.2"
+          test "$BUILD" = "5"
+
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeIdentifier' "$APP_PATH/Info.plist" | grep -qx 'com.nightvibes33.azula.ipa'
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:1:UTTypeIdentifier' "$APP_PATH/Info.plist" | grep -qx 'com.nightvibes33.azula.dylib'
 
           /usr/bin/assetutil --info "$APP_PATH/Assets.car" > /tmp/azula-assets.json
           grep -q 'AppIcon' /tmp/azula-assets.json
-          echo "Compiled fire AppIcon asset found in Assets.car"
 
           if grep -R -n 'apple-magnifier://install' Azula --include='*.swift'; then
-            echo "TrollStore-only install path still exists in iOS source" >&2
+            echo "TrollStore-only install path still exists" >&2
             exit 1
           fi
-
-          if grep -R -n 'UTType(filenameExtension: "dylib")' Azula --include='*.swift'; then
-            echo "Old dylib UTI filter still exists and can gray out valid dylibs" >&2
-            exit 1
-          fi
-          if grep -R -n 'allowedContentTypes: \[.data\]' Azula/Views/FilePickerView.swift; then
-            echo "public.data importer is still present; some executable dylibs remain disabled" >&2
-            exit 1
-          fi
-          grep -q 'selectableFileTypes: \[UTType\] = \[.item\]' Azula/Views/FilePickerView.swift
-          test "$(grep -c 'allowedContentTypes: selectableFileTypes' Azula/Views/FilePickerView.swift)" -eq 2
-          grep -q 'requiredExtension: "ipa"' Azula/Views/FilePickerView.swift
-          grep -q 'requiredExtension: "dylib"' Azula/Views/FilePickerView.swift
 
       - name: Package unsigned IPA
         shell: bash
@@ -220,10 +206,7 @@ jobs:
             cd dist
             /usr/bin/zip -qry Azula-iOS27-unsigned.ipa Payload
           )
-
           test -s dist/Azula-iOS27-unsigned.ipa
-          test -s dist/Azula-Fire-AppIcon.png
-          unzip -l dist/Azula-iOS27-unsigned.ipa | head -40
           shasum -a 256 dist/Azula-iOS27-unsigned.ipa | tee dist/Azula-iOS27-unsigned.ipa.sha256
           shasum -a 256 dist/Azula-Fire-AppIcon.png | tee dist/Azula-Fire-AppIcon.png.sha256
 

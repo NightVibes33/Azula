@@ -24,163 +24,213 @@ struct FilePickerView: View {
 
     var body: some View {
         NavigationStack {
-            GeometryReader { geometry in
-                let compact = geometry.size.width < 375
-                let accessibilityText = dynamicTypeSize.isAccessibilitySize
-                let rowPadding: CGFloat = accessibilityText ? 10 : (compact ? 5 : 8)
+            ZStack {
+                AzulaBackground()
 
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
+                GeometryReader { geometry in
+                    let compact = geometry.size.width < 375
+                    let horizontalPadding = min(max(geometry.size.width * 0.055, 16), 26)
 
-                    Form {
-                        Section("Decrypted IPA") {
-                            Button {
-                                ipaImporting = true
-                            } label: {
-                                selectionRow(
-                                    title: ipaURL == nil ? "Choose IPA" : "Selected IPA",
-                                    value: ipaURL?.lastPathComponent,
-                                    icon: "shippingbox"
-                                )
-                                .padding(.vertical, rowPadding)
+                    ScrollView {
+                        VStack(spacing: compact ? 14 : 18) {
+                            VStack(spacing: 8) {
+                                AzulaFlameMark(size: compact ? 54 : 64)
+                                Text("Patch Files")
+                                    .font(.title.bold())
+                                    .foregroundStyle(AzulaTheme.warmWhite)
+                                Text("Azula copies imports into its own sandbox before patching. Your originals in Files stay untouched.")
+                                    .font(.footnote)
+                                    .foregroundStyle(AzulaTheme.secondaryText)
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            .fileImporter(
-                                isPresented: $ipaImporting,
-                                allowedContentTypes: [UTType(filenameExtension: "ipa")!]
-                            ) { result in
-                                switch result {
-                                case .success(let sourceURL):
-                                    ipaURL = importFile(sourceURL, folder: "IPA")
-                                case .failure(let error):
-                                    console.log("IPA import failed: \(error.localizedDescription)", type: .error)
-                                }
-                            }
-                        }
+                            .padding(.top, 10)
 
-                        Section("Dylibs") {
-                            Button {
-                                dylibImporting = true
-                            } label: {
-                                selectionRow(
-                                    title: dylibURLs.isEmpty ? "Choose Dylibs" : "Change Dylibs",
-                                    value: dylibURLs.isEmpty ? nil : "\(dylibURLs.count) selected",
-                                    icon: "puzzlepiece.extension"
-                                )
-                                .padding(.vertical, rowPadding)
-                            }
-                            .fileImporter(
-                                isPresented: $dylibImporting,
-                                allowedContentTypes: [UTType(filenameExtension: "dylib")!],
-                                allowsMultipleSelection: true
-                            ) { result in
-                                switch result {
-                                case .success(let sourceURLs):
-                                    dylibURLs = importDylibs(sourceURLs)
-                                case .failure(let error):
-                                    console.log("Dylib import failed: \(error.localizedDescription)", type: .error)
-                                }
-                            }
+                            AzulaSectionHeader(title: "Target", subtitle: "Choose one decrypted IPA.")
 
-                            ForEach(dylibURLs, id: \.self) { url in
-                                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                    Image(systemName: "doc.badge.gearshape")
-                                        .foregroundStyle(.secondary)
-                                        .accessibilityHidden(true)
+                            AzulaCard {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    selectionRow(
+                                        title: ipaURL == nil ? "Choose IPA" : "Selected IPA",
+                                        value: ipaURL?.lastPathComponent,
+                                        icon: "shippingbox.fill",
+                                        ready: ipaURL != nil
+                                    )
 
-                                    Text(url.lastPathComponent)
-                                        .font(.footnote)
-                                        .lineLimit(accessibilityText ? 4 : 2)
-                                        .truncationMode(.middle)
-                                        .fixedSize(horizontal: false, vertical: true)
-
-                                    Spacer(minLength: 0)
-                                }
-                                .padding(.vertical, compact ? 2 : 4)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        dylibURLs.removeAll { $0 == url }
+                                    Button {
+                                        ipaImporting = true
                                     } label: {
-                                        Label("Remove", systemImage: "trash")
+                                        Label(ipaURL == nil ? "Browse Files" : "Replace IPA", systemImage: "folder")
+                                            .font(.subheadline.weight(.semibold))
+                                            .frame(maxWidth: .infinity)
+                                            .frame(minHeight: 48)
+                                    }
+                                    .buttonStyle(AzulaSecondaryButtonStyle())
+                                    .fileImporter(
+                                        isPresented: $ipaImporting,
+                                        allowedContentTypes: [UTType(filenameExtension: "ipa")!]
+                                    ) { result in
+                                        switch result {
+                                        case .success(let sourceURL):
+                                            ipaURL = importFile(sourceURL, folder: "IPA")
+                                        case .failure(let error):
+                                            console.log("IPA import failed: \(error.localizedDescription)", type: .error)
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        Section {
-                            Label {
-                                Text("Azula copies selected files into its own sandbox before patching. The originals in Files are never modified.")
-                                    .font(.footnote)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            } icon: {
-                                Image(systemName: "checkmark.shield")
-                                    .foregroundStyle(.secondary)
+                            AzulaSectionHeader(title: "Injected Libraries", subtitle: "Choose one or multiple dylibs.")
+
+                            AzulaCard {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    selectionRow(
+                                        title: dylibURLs.isEmpty ? "Choose Dylibs" : "Dylibs Ready",
+                                        value: dylibURLs.isEmpty ? nil : "\(dylibURLs.count) selected",
+                                        icon: "puzzlepiece.extension.fill",
+                                        ready: !dylibURLs.isEmpty
+                                    )
+
+                                    if !dylibURLs.isEmpty {
+                                        VStack(spacing: 8) {
+                                            ForEach(dylibURLs, id: \.self) { url in
+                                                dylibRow(url)
+                                            }
+                                        }
+                                    }
+
+                                    Button {
+                                        dylibImporting = true
+                                    } label: {
+                                        Label(dylibURLs.isEmpty ? "Browse Dylibs" : "Change Dylibs", systemImage: "folder.badge.plus")
+                                            .font(.subheadline.weight(.semibold))
+                                            .frame(maxWidth: .infinity)
+                                            .frame(minHeight: 48)
+                                    }
+                                    .buttonStyle(AzulaSecondaryButtonStyle())
+                                    .fileImporter(
+                                        isPresented: $dylibImporting,
+                                        allowedContentTypes: [UTType(filenameExtension: "dylib")!],
+                                        allowsMultipleSelection: true
+                                    ) { result in
+                                        switch result {
+                                        case .success(let sourceURLs):
+                                            dylibURLs = importDylibs(sourceURLs)
+                                        case .failure(let error):
+                                            console.log("Dylib import failed: \(error.localizedDescription)", type: .error)
+                                        }
+                                    }
+                                }
                             }
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: 700)
 
-                    Spacer(minLength: 0)
+                            AzulaCard {
+                                HStack(alignment: .top, spacing: 12) {
+                                    Image(systemName: "checkmark.shield.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(AzulaTheme.fireGradient)
+                                        .accessibilityHidden(true)
+
+                                    Text("Security-scoped Files access is used only long enough to copy your selected items into Azula's sandbox.")
+                                        .font(.footnote)
+                                        .foregroundStyle(AzulaTheme.secondaryText)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: 680)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, horizontalPadding)
+                        .padding(.bottom, 30)
+                    }
+                    .scrollIndicators(.hidden)
                 }
             }
-            .navigationTitle("Patch Files")
+            .navigationTitle("Files")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { isShowing = false }
+                        .foregroundStyle(AzulaTheme.secondaryText)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { isShowing = false }
                         .fontWeight(.semibold)
+                        .foregroundStyle(AzulaTheme.gold)
                         .disabled(ipaURL == nil || dylibURLs.isEmpty)
                 }
             }
         }
+        .preferredColorScheme(.dark)
     }
 
     @ViewBuilder
-    private func selectionRow(title: String, value: String?, icon: String) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .frame(width: 24)
-                    .accessibilityHidden(true)
+    private func selectionRow(title: String, value: String?, icon: String, ready: Bool) -> some View {
+        HStack(alignment: .top, spacing: 13) {
+            Image(systemName: icon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AzulaTheme.fireGradient)
+                .frame(width: 46, height: 46)
+                .background(AzulaTheme.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.body.weight(.medium))
-                    if let value {
-                        Text(value)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(AzulaTheme.warmWhite)
 
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Label(title, systemImage: icon)
-                    .font(.body.weight(.medium))
                 if let value {
                     Text(value)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
+                        .font(.footnote)
+                        .foregroundStyle(AzulaTheme.secondaryText)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
                         .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if ready {
+                    AzulaStatusBadge(text: "Ready", systemImage: "checkmark.circle.fill", tint: AzulaTheme.gold)
+                        .padding(.top, 3)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: 0)
         }
-        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    private func dylibRow(_ url: URL) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "doc.badge.gearshape")
+                .foregroundStyle(AzulaTheme.orange)
+                .frame(width: 24)
+
+            Text(url.lastPathComponent)
+                .font(.footnote)
+                .foregroundStyle(AzulaTheme.secondaryText)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
+                .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 6)
+
+            Button(role: .destructive) {
+                dylibURLs.removeAll { $0 == url }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Color.red.opacity(0.85))
+                    .font(.body)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(url.lastPathComponent)")
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(AzulaTheme.gunmetalLight.opacity(0.26), lineWidth: 1)
+        }
     }
 
     private func importDylibs(_ sourceURLs: [URL]) -> [URL] {

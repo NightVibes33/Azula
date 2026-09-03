@@ -22,6 +22,12 @@ struct FilePickerView: View {
     private let console: Console = .shared
     private let fileManager = FileManager.default
 
+    // Files providers do not consistently advertise IPA/dylib UTIs. A dylib can
+    // arrive as public.unix-executable and an IPA as generic archive/data. Using
+    // .item keeps those rows selectable; Azula enforces the extension immediately
+    // after selection before any file is copied or patched.
+    private let selectableFileTypes: [UTType] = [.item]
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -66,15 +72,13 @@ struct FilePickerView: View {
                                             .frame(minHeight: 48)
                                     }
                                     .buttonStyle(AzulaSecondaryButtonStyle())
-                                    // Files providers frequently advertise .ipa as generic data/archive.
-                                    // Accept data here, then enforce the actual extension after selection.
                                     .fileImporter(
                                         isPresented: $ipaImporting,
-                                        allowedContentTypes: [.data]
+                                        allowedContentTypes: selectableFileTypes
                                     ) { result in
                                         switch result {
                                         case .success(let sourceURL):
-                                            guard validate(sourceURL, expectedExtension: "ipa") else { return }
+                                            guard validateSelectedFile(sourceURL, requiredExtension: "ipa") else { return }
                                             ipaURL = importFile(sourceURL, folder: "IPA")
                                         case .failure(let error):
                                             console.log("IPA import failed: \(error.localizedDescription)", type: .error)
@@ -111,32 +115,27 @@ struct FilePickerView: View {
                                             .frame(minHeight: 48)
                                     }
                                     .buttonStyle(AzulaSecondaryButtonStyle())
-                                    // public.dylib is inconsistently reported by Files providers.
-                                    // Use public.data so the row is selectable, then hard-check .dylib below.
                                     .fileImporter(
                                         isPresented: $dylibImporting,
-                                        allowedContentTypes: [.data],
+                                        allowedContentTypes: selectableFileTypes,
                                         allowsMultipleSelection: true
                                     ) { result in
                                         switch result {
                                         case .success(let sourceURLs):
-                                            let accepted = sourceURLs.filter {
-                                                $0.pathExtension.lowercased() == "dylib"
-                                            }
-                                            let rejected = sourceURLs.filter {
-                                                $0.pathExtension.lowercased() != "dylib"
+                                            let validDylibs = sourceURLs.filter {
+                                                validateSelectedFile($0, requiredExtension: "dylib", logFailure: false)
                                             }
 
-                                            for url in rejected {
-                                                console.log("Skipped non-dylib file: \(url.lastPathComponent)", type: .warn)
+                                            for rejectedURL in sourceURLs where !validDylibs.contains(rejectedURL) {
+                                                console.log("Skipped non-dylib file: \(rejectedURL.lastPathComponent)", type: .warn)
                                             }
 
-                                            guard !accepted.isEmpty else {
+                                            guard !validDylibs.isEmpty else {
                                                 console.log("No .dylib files were selected", type: .error)
                                                 return
                                             }
 
-                                            dylibURLs = importDylibs(accepted)
+                                            dylibURLs = importDylibs(validDylibs)
                                         case .failure(let error):
                                             console.log("Dylib import failed: \(error.localizedDescription)", type: .error)
                                         }
@@ -151,7 +150,7 @@ struct FilePickerView: View {
                                         .foregroundStyle(AzulaTheme.fireGradient)
                                         .accessibilityHidden(true)
 
-                                    Text("Files can report IPA and dylib files with generic content types. Azula allows generic file data in the picker, then strictly validates .ipa and .dylib extensions before importing.")
+                                    Text("Files can expose IPA and dylib items using provider-specific content types. Azula keeps those items selectable, then strictly accepts only .ipa and .dylib filenames before importing.")
                                         .font(.footnote)
                                         .foregroundStyle(AzulaTheme.secondaryText)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -254,15 +253,34 @@ struct FilePickerView: View {
         }
     }
 
-    private func validate(_ sourceURL: URL, expectedExtension: String) -> Bool {
-        let actual = sourceURL.pathExtension.lowercased()
-        guard actual == expectedExtension.lowercased() else {
-            console.log(
-                "Expected .\(expectedExtension), got \(sourceURL.lastPathComponent)",
-                type: .error
-            )
+    private func validateSelectedFile(
+        _ sourceURL: URL,
+        requiredExtension: String,
+        logFailure: Bool = true
+    ) -> Bool {
+        guard sourceURL.pathExtension.lowercased() == requiredExtension.lowercased() else {
+            if logFailure {
+                console.log(
+                    "Expected a .\(requiredExtension) file, got \(sourceURL.lastPathComponent)",
+                    type: .error
+                )
+            }
             return false
         }
+
+        do {
+            let values = try sourceURL.resourceValues(forKeys: [.isRegularFileKey])
+            if values.isRegularFile == false {
+                if logFailure {
+                    console.log("Selected item is not a regular file: \(sourceURL.lastPathComponent)", type: .error)
+                }
+                return false
+            }
+        } catch {
+            // Remote Files providers can defer metadata until security-scoped
+            // access starts. The coordinated copy below is the authoritative read.
+        }
+
         return true
     }
 

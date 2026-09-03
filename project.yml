@@ -42,7 +42,7 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        UTImportedTypeDeclarations:
+        UTExportedTypeDeclarations:
           - UTTypeIdentifier: com.nightvibes33.azula.ipa
             UTTypeDescription: iOS Application Package
             UTTypeConformsTo:
@@ -61,12 +61,23 @@ targets:
             UTTypeTagSpecification:
               public.filename-extension:
                 - dylib
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: iOS Application Package
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.nightvibes33.azula.ipa
+          - CFBundleTypeName: Mach-O Dynamic Library
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.nightvibes33.azula.dylib
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nightvibes33.azula
         PRODUCT_NAME: Azula
-        MARKETING_VERSION: 2.1.2
-        CURRENT_PROJECT_VERSION: 5
+        MARKETING_VERSION: 2.1.3
+        CURRENT_PROJECT_VERSION: 6
         IPHONEOS_DEPLOYMENT_TARGET: 27.0
         SWIFT_VERSION: 5.0
         TARGETED_DEVICE_FAMILY: "1"

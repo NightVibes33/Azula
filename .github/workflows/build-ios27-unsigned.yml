@@ -38,9 +38,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install xcodegen dpkg
+          brew install xcodegen dpkg librsvg
           xcodegen --version
           dpkg-deb --version | head -1
+          rsvg-convert --version
 
       - name: Prepare ZIPFoundation for Xcode 27
         shell: bash
@@ -58,6 +59,37 @@ jobs:
           text = re.sub(r"\.iOS\(\.v(?:9|10|11|12|13|14)\)", ".iOS(.v15)", text)
           manifest.write_text(text)
           PY
+
+      - name: Render and validate fire AppIcon
+        shell: bash
+        run: |
+          set -euo pipefail
+          ICONSET="Azula/Assets.xcassets/AppIcon.appiconset"
+          SOURCE="$ICONSET/Azula-Fire.svg"
+          OUTPUT="$ICONSET/Azula-Fire.png"
+          MANIFEST="$ICONSET/Contents.json"
+
+          test -s "$SOURCE"
+          grep -q '"Azula-Fire.png"' "$MANIFEST"
+          if grep -q '"Azula.png"' "$MANIFEST"; then
+            echo "Old blue Azula.png is still referenced by the AppIcon manifest" >&2
+            exit 1
+          fi
+          if grep -q '"idiom" : "mac"' "$MANIFEST"; then
+            echo "Obsolete Mac app icon entries are still present" >&2
+            exit 1
+          fi
+
+          rsvg-convert -w 1024 -h 1024 "$SOURCE" -o "$OUTPUT"
+          test -s "$OUTPUT"
+          WIDTH="$(sips -g pixelWidth "$OUTPUT" | awk '/pixelWidth:/ {print $2}')"
+          HEIGHT="$(sips -g pixelHeight "$OUTPUT" | awk '/pixelHeight:/ {print $2}')"
+          echo "Rendered fire AppIcon: ${WIDTH}x${HEIGHT}"
+          test "$WIDTH" = "1024"
+          test "$HEIGHT" = "1024"
+
+          # Keep the asset catalog clean: only the rendered PNG is part of the app icon set.
+          rm "$SOURCE"
 
       - name: Bundle current ElleKit for iOS 27
         shell: bash
@@ -90,9 +122,11 @@ jobs:
           set -euo pipefail
           xcodegen generate --spec project.yml
           SETTINGS="$(xcodebuild -project Azula.xcodeproj -scheme Azula -sdk iphoneos -destination 'generic/platform=iOS' -showBuildSettings)"
-          echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SDKROOT|SWIFT_VERSION|PRODUCT_BUNDLE_IDENTIFIER|TARGETED_DEVICE_FAMILY|SUPPORTED_PLATFORMS'
+          echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SDKROOT|SWIFT_VERSION|PRODUCT_BUNDLE_IDENTIFIER|TARGETED_DEVICE_FAMILY|SUPPORTED_PLATFORMS|MARKETING_VERSION|CURRENT_PROJECT_VERSION'
           echo "$SETTINGS" | grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 27.0'
           echo "$SETTINGS" | grep -q 'TARGETED_DEVICE_FAMILY = 1'
+          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.0'
+          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 3'
 
       - name: Build unsigned real-device app
         shell: bash
@@ -119,6 +153,7 @@ jobs:
           test -d "$APP_PATH"
           test -f "$APP_PATH/Azula"
           test -f "$APP_PATH/libellekit.dylib"
+          test -f "$APP_PATH/Assets.car"
 
           echo "Azula executable:"
           file "$APP_PATH/Azula"
@@ -130,14 +165,30 @@ jobs:
 
           MINIMUM_OS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP_PATH/Info.plist")"
           DEVICE_FAMILY="$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$APP_PATH/Info.plist")"
-          echo "MinimumOSVersion=$MINIMUM_OS UIDeviceFamily[0]=$DEVICE_FAMILY"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")"
+          BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
+          echo "MinimumOSVersion=$MINIMUM_OS UIDeviceFamily[0]=$DEVICE_FAMILY version=$VERSION build=$BUILD"
           test "$MINIMUM_OS" = "27.0"
           test "$DEVICE_FAMILY" = "1"
+          test "$VERSION" = "2.1.0"
+          test "$BUILD" = "3"
+
+          /usr/bin/assetutil --info "$APP_PATH/Assets.car" > /tmp/azula-assets.json
+          grep -q 'AppIcon' /tmp/azula-assets.json
+          echo "Compiled AppIcon asset found in Assets.car"
 
           if grep -R -n 'apple-magnifier://install' Azula --include='*.swift'; then
             echo "TrollStore-only install path still exists in iOS source" >&2
             exit 1
           fi
+
+          if grep -R -n 'UTType(filenameExtension: "dylib")' Azula --include='*.swift'; then
+            echo "Old dylib UTI filter still exists and can gray out valid dylibs" >&2
+            exit 1
+          fi
+          grep -q 'allowedContentTypes: \[.data\]' Azula/Views/FilePickerView.swift
+          grep -q 'pathExtension.lowercased() == "dylib"' Azula/Views/FilePickerView.swift
+          grep -q 'expectedExtension: "ipa"' Azula/Views/FilePickerView.swift
 
       - name: Package unsigned IPA
         shell: bash

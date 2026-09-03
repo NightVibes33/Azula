@@ -58,7 +58,15 @@ struct Injector {
         inHeader header: mach_header_64
     ) -> Bool {
         let segCmds: [SegmentCommand] = loadCommands.lazy.compactMap { $0 as? SegmentCommand }
-        let slc: SegmentCommand? = segCmds.first(where: { withUnsafePointer(to: $0.command.segname) { ptr in strcmp(ptr, "__TEXT") == 0 } })
+        let slc: SegmentCommand? = segCmds.first { segment in
+            var segname = segment.command.segname
+            return withUnsafeBytes(of: &segname) { bytes in
+                guard let baseAddress = bytes.baseAddress else {
+                    return false
+                }
+                return strcmp(baseAddress.assumingMemoryBound(to: CChar.self), "__TEXT") == 0
+            }
+        }
         
         guard let slc else {
             console.log("Couldn't find text segment", type: .error)

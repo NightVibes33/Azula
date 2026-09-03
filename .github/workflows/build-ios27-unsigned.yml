@@ -71,6 +71,7 @@ jobs:
 
           test -s "$SOURCE"
           grep -q '"Azula-Fire.png"' "$MANIFEST"
+
           if grep -q '"Azula.png"' "$MANIFEST"; then
             echo "Old blue Azula.png is still referenced by the AppIcon manifest" >&2
             exit 1
@@ -79,6 +80,15 @@ jobs:
             echo "Obsolete Mac app icon entries are still present" >&2
             exit 1
           fi
+          if find "$ICONSET" -maxdepth 1 -type f -name 'Azula-*.png' ! -name 'Azula-Fire.png' -print -quit | grep -q .; then
+            echo "A legacy raster icon is still present in AppIcon.appiconset" >&2
+            exit 1
+          fi
+
+          # Confirm the source is the fire/gunmetal design, not the historic blue icon.
+          grep -q '#ff6a08' "$SOURCE"
+          grep -q '#ff5a00' "$SOURCE"
+          grep -q 'id="fire"' "$SOURCE"
 
           rsvg-convert -w 1024 -h 1024 "$SOURCE" -o "$OUTPUT"
           test -s "$OUTPUT"
@@ -87,8 +97,9 @@ jobs:
           echo "Rendered fire AppIcon: ${WIDTH}x${HEIGHT}"
           test "$WIDTH" = "1024"
           test "$HEIGHT" = "1024"
+          shasum -a 256 "$OUTPUT"
 
-          # Keep the asset catalog clean: only the rendered PNG is part of the app icon set.
+          # Xcode should only see the rendered PNG + Contents.json in the app icon set.
           rm "$SOURCE"
 
       - name: Bundle current ElleKit for iOS 27
@@ -125,8 +136,8 @@ jobs:
           echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SDKROOT|SWIFT_VERSION|PRODUCT_BUNDLE_IDENTIFIER|TARGETED_DEVICE_FAMILY|SUPPORTED_PLATFORMS|MARKETING_VERSION|CURRENT_PROJECT_VERSION'
           echo "$SETTINGS" | grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 27.0'
           echo "$SETTINGS" | grep -q 'TARGETED_DEVICE_FAMILY = 1'
-          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.0'
-          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 3'
+          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.1'
+          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 4'
 
       - name: Build unsigned real-device app
         shell: bash
@@ -170,12 +181,12 @@ jobs:
           echo "MinimumOSVersion=$MINIMUM_OS UIDeviceFamily[0]=$DEVICE_FAMILY version=$VERSION build=$BUILD"
           test "$MINIMUM_OS" = "27.0"
           test "$DEVICE_FAMILY" = "1"
-          test "$VERSION" = "2.1.0"
-          test "$BUILD" = "3"
+          test "$VERSION" = "2.1.1"
+          test "$BUILD" = "4"
 
           /usr/bin/assetutil --info "$APP_PATH/Assets.car" > /tmp/azula-assets.json
           grep -q 'AppIcon' /tmp/azula-assets.json
-          echo "Compiled AppIcon asset found in Assets.car"
+          echo "Compiled fire AppIcon asset found in Assets.car"
 
           if grep -R -n 'apple-magnifier://install' Azula --include='*.swift'; then
             echo "TrollStore-only install path still exists in iOS source" >&2
@@ -186,26 +197,35 @@ jobs:
             echo "Old dylib UTI filter still exists and can gray out valid dylibs" >&2
             exit 1
           fi
-          grep -q 'allowedContentTypes: \[.data\]' Azula/Views/FilePickerView.swift
-          grep -q 'pathExtension.lowercased() == "dylib"' Azula/Views/FilePickerView.swift
-          grep -q 'expectedExtension: "ipa"' Azula/Views/FilePickerView.swift
+          if grep -R -n 'allowedContentTypes: \[.data\]' Azula/Views/FilePickerView.swift; then
+            echo "public.data importer is still present; some executable dylibs remain disabled" >&2
+            exit 1
+          fi
+          grep -q 'selectableFileTypes: \[UTType\] = \[.item\]' Azula/Views/FilePickerView.swift
+          test "$(grep -c 'allowedContentTypes: selectableFileTypes' Azula/Views/FilePickerView.swift)" -eq 2
+          grep -q 'requiredExtension: "ipa"' Azula/Views/FilePickerView.swift
+          grep -q 'requiredExtension: "dylib"' Azula/Views/FilePickerView.swift
 
       - name: Package unsigned IPA
         shell: bash
         run: |
           set -euo pipefail
           APP_PATH="$PWD/build/Build/Products/Release-iphoneos/Azula.app"
+          ICON_PATH="$PWD/Azula/Assets.xcassets/AppIcon.appiconset/Azula-Fire.png"
           rm -rf dist
           mkdir -p dist/Payload
           cp -R "$APP_PATH" dist/Payload/Azula.app
+          cp "$ICON_PATH" dist/Azula-Fire-AppIcon.png
           (
             cd dist
             /usr/bin/zip -qry Azula-iOS27-unsigned.ipa Payload
           )
 
           test -s dist/Azula-iOS27-unsigned.ipa
+          test -s dist/Azula-Fire-AppIcon.png
           unzip -l dist/Azula-iOS27-unsigned.ipa | head -40
           shasum -a 256 dist/Azula-iOS27-unsigned.ipa | tee dist/Azula-iOS27-unsigned.ipa.sha256
+          shasum -a 256 dist/Azula-Fire-AppIcon.png | tee dist/Azula-Fire-AppIcon.png.sha256
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
@@ -214,6 +234,8 @@ jobs:
           path: |
             dist/Azula-iOS27-unsigned.ipa
             dist/Azula-iOS27-unsigned.ipa.sha256
+            dist/Azula-Fire-AppIcon.png
+            dist/Azula-Fire-AppIcon.png.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

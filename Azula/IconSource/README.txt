@@ -1,0 +1,1 @@
+This directory intentionally stores only source artwork metadata. The actual AppIcon raster is committed as Azula/Assets.xcassets/AppIcon.appiconset/Azula-Exact.png and is SHA-256 checked by CI.

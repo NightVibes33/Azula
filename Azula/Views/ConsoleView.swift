@@ -17,17 +17,46 @@ struct ConsoleView: View {
 
             ZStack {
                 RoundedRectangle(cornerRadius: compact ? 14 : 18, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(Color.black.opacity(0.42))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: compact ? 14 : 18, style: .continuous)
+                            .fill(.ultraThinMaterial.opacity(0.20))
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: compact ? 14 : 18, style: .continuous)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [
+                                        AzulaTheme.orange.opacity(0.30),
+                                        AzulaTheme.gunmetalLight.opacity(0.34),
+                                        Color.white.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    }
 
                 if console.logs.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "terminal")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
-                        Text("Patch activity will appear here")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                    VStack(spacing: 9) {
+                        ZStack {
+                            Circle()
+                                .fill(AzulaTheme.orange.opacity(0.09))
+                                .frame(width: 48, height: 48)
+                            Image(systemName: "terminal")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(AzulaTheme.fireGradient)
+                        }
+                        .accessibilityHidden(true)
+
+                        Text("No patch activity yet")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AzulaTheme.warmWhite)
+
+                        Text("Technical events and errors will appear here.")
+                            .font(.caption)
+                            .foregroundStyle(AzulaTheme.secondaryText)
                             .multilineTextAlignment(.center)
                     }
                     .padding(padding)

@@ -159,8 +159,13 @@ struct FilePickerView: View {
             }
         }
 
-        if let error = coordinationError ?? copyError as NSError? {
-            console.log("Couldn't import \(sourceURL.lastPathComponent): \(error.localizedDescription)", type: .error)
+        if let coordinationError {
+            console.log("Couldn't access \(sourceURL.lastPathComponent): \(coordinationError.localizedDescription)", type: .error)
+            return nil
+        }
+
+        if let copyError {
+            console.log("Couldn't import \(sourceURL.lastPathComponent): \(copyError.localizedDescription)", type: .error)
             return nil
         }
 

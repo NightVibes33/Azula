@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12182b"/>
+      <stop offset="0.5" stop-color="#090b12"/>
+      <stop offset="1" stop-color="#020305"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#77809b"/>
+      <stop offset="0.38" stop-color="#313748"/>
+      <stop offset="0.72" stop-color="#151922"/>
+      <stop offset="1" stop-color="#5f667d"/>
+    </linearGradient>
+    <linearGradient id="fire" x1="0.4" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff05a"/>
+      <stop offset="0.2" stop-color="#ffc22c"/>
+      <stop offset="0.52" stop-color="#ff6a08"/>
+      <stop offset="0.78" stop-color="#f02b05"/>
+      <stop offset="1" stop-color="#8f1208"/>
+    </linearGradient>
+    <linearGradient id="fireDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffb11a"/>
+      <stop offset="0.55" stop-color="#ff4c05"/>
+      <stop offset="1" stop-color="#3b0b10"/>
+    </linearGradient>
+    <filter id="orangeGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feFlood flood-color="#ff5a00" flood-opacity="0.75"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.65"/>
+    </filter>
+  </defs>
+
+  <rect x="22" y="22" width="980" height="980" rx="210" fill="url(#bg)"/>
+  <rect x="23" y="23" width="978" height="978" rx="209" fill="none" stroke="#22293d" stroke-width="3"/>
+
+  <g filter="url(#softShadow)">
+    <!-- broken metallic ring -->
+    <path d="M256 244 C145 345 108 509 154 650 C206 809 349 899 507 906 C656 912 806 833 870 694 C929 567 907 404 805 286 C765 240 721 207 676 185"
+          fill="none" stroke="url(#metal)" stroke-width="46" stroke-linecap="round"/>
+    <path d="M256 244 C145 345 108 509 154 650 C206 809 349 899 507 906 C656 912 806 833 870 694 C929 567 907 404 805 286 C765 240 721 207 676 185"
+          fill="none" stroke="#ff5a00" stroke-opacity="0.85" stroke-width="5" stroke-linecap="round" filter="url(#orangeGlow)"/>
+
+    <!-- main flame -->
+    <path d="M504 135 C580 218 611 284 600 351 C594 391 573 426 540 457 C517 479 506 510 513 546 C523 598 557 636 566 688 C576 747 547 799 489 845 C408 819 348 764 324 696 C301 629 313 560 353 500 C380 459 399 422 401 382 C403 335 426 280 504 135 Z"
+          fill="url(#fire)" filter="url(#orangeGlow)"/>
+
+    <!-- left licking flame -->
+    <path d="M347 417 C282 486 248 557 259 631 C269 699 312 758 382 797 C433 826 473 831 489 845 C414 789 390 716 407 648 C419 602 414 554 390 516 C365 476 351 447 347 417 Z"
+          fill="url(#fireDark)"/>
+
+    <!-- right licking flame -->
+    <path d="M641 369 C698 441 731 511 724 586 C718 657 681 727 613 783 C571 818 530 837 489 845 C548 801 574 748 568 694 C563 649 574 609 607 574 C645 534 656 481 641 369 Z"
+          fill="url(#fire)"/>
+
+    <!-- inner flame -->
+    <path d="M542 474 C584 529 598 574 583 616 C572 647 551 670 552 706 C553 752 529 797 489 845 C442 796 427 751 439 708 C449 674 471 649 471 615 C471 570 490 525 542 474 Z"
+          fill="url(#fireDark)"/>
+
+    <!-- highlights -->
+    <path d="M500 170 C542 231 556 285 546 333 C539 369 519 401 490 430 C470 449 457 471 454 497 C442 449 450 405 477 364 C503 325 513 262 500 170 Z"
+          fill="#ffe96a" opacity="0.43"/>
+    <path d="M656 420 C687 478 694 530 681 575 C670 614 646 650 613 684 C631 636 632 590 614 551 C596 513 612 468 656 420 Z"
+          fill="#ffd33a" opacity="0.42"/>
+  </g>
+</svg>

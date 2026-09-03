@@ -22,11 +22,11 @@ struct FilePickerView: View {
     private let console: Console = .shared
     private let fileManager = FileManager.default
 
-    // Files providers do not consistently advertise IPA/dylib UTIs. A dylib can
-    // arrive as public.unix-executable and an IPA as generic archive/data. Using
-    // .item keeps those rows selectable; Azula enforces the extension immediately
-    // after selection before any file is copied or patched.
-    private let selectableFileTypes: [UTType] = [.item]
+    // These identifiers are declared in Azula/Info.plist with explicit filename
+    // extension tags. This gives Files a real type mapping for .ipa and .dylib
+    // instead of relying on a provider's inconsistent generic UTI.
+    private static let ipaType = UTType(importedAs: "com.nightvibes33.azula.ipa")
+    private static let dylibType = UTType(importedAs: "com.nightvibes33.azula.dylib")
 
     var body: some View {
         NavigationStack {
@@ -52,7 +52,7 @@ struct FilePickerView: View {
                             }
                             .padding(.top, 10)
 
-                            AzulaSectionHeader(title: "Target", subtitle: "Choose one decrypted IPA.")
+                            AzulaSectionHeader(title: "Target", subtitle: "Choose one decrypted .ipa file.")
 
                             AzulaCard {
                                 VStack(alignment: .leading, spacing: 14) {
@@ -66,7 +66,7 @@ struct FilePickerView: View {
                                     Button {
                                         ipaImporting = true
                                     } label: {
-                                        Label(ipaURL == nil ? "Browse Files" : "Replace IPA", systemImage: "folder")
+                                        Label(ipaURL == nil ? "Browse IPA Files" : "Replace IPA", systemImage: "folder")
                                             .font(.subheadline.weight(.semibold))
                                             .frame(maxWidth: .infinity)
                                             .frame(minHeight: 48)
@@ -74,7 +74,7 @@ struct FilePickerView: View {
                                     .buttonStyle(AzulaSecondaryButtonStyle())
                                     .fileImporter(
                                         isPresented: $ipaImporting,
-                                        allowedContentTypes: selectableFileTypes
+                                        allowedContentTypes: [Self.ipaType]
                                     ) { result in
                                         switch result {
                                         case .success(let sourceURL):
@@ -87,7 +87,7 @@ struct FilePickerView: View {
                                 }
                             }
 
-                            AzulaSectionHeader(title: "Injected Libraries", subtitle: "Choose one or multiple dylibs.")
+                            AzulaSectionHeader(title: "Injected Libraries", subtitle: "Choose one or multiple .dylib files.")
 
                             AzulaCard {
                                 VStack(alignment: .leading, spacing: 14) {
@@ -109,7 +109,7 @@ struct FilePickerView: View {
                                     Button {
                                         dylibImporting = true
                                     } label: {
-                                        Label(dylibURLs.isEmpty ? "Browse Dylibs" : "Change Dylibs", systemImage: "folder.badge.plus")
+                                        Label(dylibURLs.isEmpty ? "Browse Dylib Files" : "Change Dylibs", systemImage: "folder.badge.plus")
                                             .font(.subheadline.weight(.semibold))
                                             .frame(maxWidth: .infinity)
                                             .frame(minHeight: 48)
@@ -117,7 +117,7 @@ struct FilePickerView: View {
                                     .buttonStyle(AzulaSecondaryButtonStyle())
                                     .fileImporter(
                                         isPresented: $dylibImporting,
-                                        allowedContentTypes: selectableFileTypes,
+                                        allowedContentTypes: [Self.dylibType],
                                         allowsMultipleSelection: true
                                     ) { result in
                                         switch result {
@@ -150,7 +150,7 @@ struct FilePickerView: View {
                                         .foregroundStyle(AzulaTheme.fireGradient)
                                         .accessibilityHidden(true)
 
-                                    Text("Files can expose IPA and dylib items using provider-specific content types. Azula keeps those items selectable, then strictly accepts only .ipa and .dylib filenames before importing.")
+                                    Text("Azula registers .ipa and .dylib as explicit imported document types. The IPA picker shows IPA files; the dylib picker shows dylibs; the filename extension is verified again before anything is copied.")
                                         .font(.footnote)
                                         .foregroundStyle(AzulaTheme.secondaryText)
                                         .fixedSize(horizontal: false, vertical: true)

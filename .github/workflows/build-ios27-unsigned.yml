@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - ios27-unsigned-ipa
+  pull_request:
+    branches:
+      - emt
   workflow_dispatch:
 
 permissions:

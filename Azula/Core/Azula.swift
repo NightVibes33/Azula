@@ -27,8 +27,6 @@ struct Azula {
         removing remPayloads: [String],
         from url: URL
     ) {
-        // Initialise all properties
-
         self.payloads = payloads
         self.remPayloads = remPayloads
         self.url = url
@@ -38,152 +36,167 @@ struct Azula {
         injector = Injector(extractor: extractor, patcher: patcher)
         remover = Remover(extractor: extractor, patcher: patcher)
 
-        // Parse the target binary to get headers and load commands
+        // These collections are parser state for one target only. The original
+        // implementation leaked commands between successive binaries.
+        loadCommands.removeAll(keepingCapacity: true)
+        machHeaders.removeAll(keepingCapacity: true)
+
+        guard !target.isEmpty else {
+            console.log("Couldn't read target binary", type: .error)
+            return
+        }
 
         guard let fatHeader: fat_header = extractor.extract() else {
-            console.log("Couldn't find header", type: .error)
+            console.log("Couldn't find Mach-O header", type: .error)
             return
         }
 
         if fatHeader.magic.byteSwapped == FAT_MAGIC {
-            let archCount: UInt32 = _OSSwapInt32(fatHeader.nfat_arch)
-            var offset: Int = MemoryLayout<fat_header>.size - MemoryLayout<fat_arch>.size
+            let archCount = _OSSwapInt32(fatHeader.nfat_arch)
+            var offset = MemoryLayout<fat_header>.size
 
-            console.log("Multi-architecture binary with \(archCount) arches", type: .info)
+            console.log("Multi-architecture binary with \(archCount) slices", type: .info)
 
             for _ in 0 ..< archCount {
-                offset += MemoryLayout<fat_arch>.size
-
-                if let arch: fat_arch = extractor.extract(at: offset) {
-                    let archOffset: Int = .init(_OSSwapInt32(arch.offset))
-                    if let header: mach_header_64 = extractor.extract(at: archOffset) {
-                        let mh: MachHeader = .init(header: header, offset: archOffset)
-                        
-                        machHeaders.append(mh)
-                        loadCommands.append(contentsOf: getLoadCommands(for: mh))
-                    }
+                guard let arch: fat_arch = extractor.extract(at: offset) else {
+                    console.log("Couldn't parse fat architecture table", type: .error)
+                    return
                 }
+
+                let archOffset = Int(_OSSwapInt32(arch.offset))
+                if let header: mach_header_64 = extractor.extract(at: archOffset),
+                   header.magic == MH_MAGIC_64 || header.magic == MH_CIGAM_64
+                {
+                    let mh = MachHeader(header: header, offset: archOffset)
+                    machHeaders.append(mh)
+                    loadCommands.append(contentsOf: getLoadCommands(for: mh))
+                }
+
+                offset += MemoryLayout<fat_arch>.size
             }
-        } else {
+        } else if let header: mach_header_64 = extractor.extract(),
+                  header.magic == MH_MAGIC_64 || header.magic == MH_CIGAM_64
+        {
             console.log("Thin binary", type: .info)
-
-            if let header: mach_header_64 = extractor.extract() {
-                let mh: MachHeader = .init(header: header, offset: 0)
-
-                machHeaders = [mh]
-                loadCommands = getLoadCommands(for: mh)
-            }
+            let mh = MachHeader(header: header, offset: 0)
+            machHeaders = [mh]
+            loadCommands = getLoadCommands(for: mh)
+        } else {
+            console.log("Unsupported or malformed Mach-O binary", type: .error)
         }
     }
 
     func inject() -> Bool {
-        guard !isEncrypted() else {
-            console.log("Azula only works on decrypted binaries", type: .error)
+        guard !machHeaders.isEmpty else {
+            console.log("No valid Mach-O slices found", type: .error)
             return false
         }
 
-        for (payload, mh): (String, MachHeader) in product(payloads, machHeaders) {
+        guard !isEncrypted() else {
+            console.log("Azula requires a decrypted IPA binary", type: .error)
+            return false
+        }
+
+        let deviceHeaders = machHeaders.filter { $0.header.cputype == CPU_TYPE_ARM64 }
+        guard !deviceHeaders.isEmpty else {
+            console.log("No arm64/arm64e device slice found", type: .error)
+            return false
+        }
+
+        for (payload, mh) in product(payloads, deviceHeaders) {
             guard injector.inject(payload, withHeader: mh),
-                  let binName: String = payload.components(separatedBy: "/").last,
-                  let archName: String = getArchName(for: mh.header)
+                  let binName = payload.components(separatedBy: "/").last,
+                  let archName = getArchName(for: mh.header)
             else {
                 return false
             }
 
-            console.log("Successfully injected \(binName) into \(archName) slice", type: .info)
+            console.log("Injected \(binName) into \(archName) slice", type: .info)
         }
-        
+
         return true
     }
-    
+
     func remove() -> Bool {
         remover.remove(remPayloads)
     }
-    
+
+    func replaceLoadPaths(_ oldPaths: [String], with replacement: String) -> Bool {
+        remover.replace(oldPaths, with: replacement)
+    }
+
     func slice() -> Bool {
         let signatureLoadCommands: [SignatureCommand] = loadCommands.lazy.compactMap { $0 as? SignatureCommand }
         var patches: [Patch] = []
-        var strip: Int = 0x0000_1337
-        
-        for cslc: SignatureCommand in signatureLoadCommands {
-            patches.append(Patch(offset: cslc.offset, data: Data(bytes: &strip, count: 4)))
+        var strip = 0x0000_1337
+
+        for command in signatureLoadCommands {
+            patches.append(Patch(offset: command.offset, data: Data(bytes: &strip, count: 4)))
         }
-        
+
         return patcher.patch(patches)
     }
 
     private func getLoadCommands(for mh: MachHeader) -> [any LoadCommand] {
-        var offset: Int = mh.offset + MemoryLayout.size(ofValue: mh.header)
-        var ret: [any LoadCommand] = []
+        var offset = mh.offset + MemoryLayout.size(ofValue: mh.header)
+        var result: [any LoadCommand] = []
 
         for _ in 0 ..< mh.header.ncmds {
-            guard let loadCommand: load_command = extractor.extract(at: offset) else {
-                console.log(String(format: "Load command at 0x%X is out of bounds", offset), type: .error)
-                return ret
+            guard let loadCommand: load_command = extractor.extract(at: offset),
+                  loadCommand.cmdsize >= UInt32(MemoryLayout<load_command>.size)
+            else {
+                console.log(String(format: "Invalid load command at 0x%X", offset), type: .error)
+                return result
             }
 
             switch loadCommand.cmd {
-                case LC_LOAD_WEAK_DYLIB, UInt32(LC_LOAD_DYLIB):
-                    let command: dylib_command = extractor.extract(at: offset)!
-                    ret.append(DylibCommand(offset: offset, command: command, mh: mh))
+            case UInt32(LC_LOAD_DYLIB),
+                 UInt32(LC_LOAD_WEAK_DYLIB),
+                 UInt32(LC_REEXPORT_DYLIB),
+                 UInt32(LC_LOAD_UPWARD_DYLIB),
+                 UInt32(LC_LAZY_LOAD_DYLIB):
+                guard let command: dylib_command = extractor.extract(at: offset) else { return result }
+                result.append(DylibCommand(offset: offset, command: command, mh: mh))
 
-                case UInt32(LC_ENCRYPTION_INFO_64):
-                    let command: encryption_info_command_64 = extractor.extract(at: offset)!
-                    ret.append(EncryptionCommand(offset: offset, command: command))
+            case UInt32(LC_ENCRYPTION_INFO_64):
+                guard let command: encryption_info_command_64 = extractor.extract(at: offset) else { return result }
+                result.append(EncryptionCommand(offset: offset, command: command))
 
-                case UInt32(LC_CODE_SIGNATURE):
-                    let command: linkedit_data_command = extractor.extract(at: offset)!
-                    ret.append(SignatureCommand(offset: offset, command: command))
+            case UInt32(LC_CODE_SIGNATURE):
+                guard let command: linkedit_data_command = extractor.extract(at: offset) else { return result }
+                result.append(SignatureCommand(offset: offset, command: command))
 
-                case UInt32(LC_SEGMENT_64):
-                    let command: segment_command_64 = extractor.extract(at: offset)!
-                    ret.append(SegmentCommand(offset: offset, command: command))
+            case UInt32(LC_SEGMENT_64):
+                guard let command: segment_command_64 = extractor.extract(at: offset) else { return result }
+                result.append(SegmentCommand(offset: offset, command: command, mh: mh))
 
-                default:
-                    offset += Int(loadCommand.cmdsize)
-                    continue
+            default:
+                break
             }
 
             offset += Int(loadCommand.cmdsize)
         }
 
-        return ret
+        return result
     }
-    
+
     private func isEncrypted() -> Bool {
-        let encLoadCommands: [EncryptionCommand] = loadCommands.lazy.compactMap { $0 as? EncryptionCommand }
-        
-        for elc: EncryptionCommand in encLoadCommands {
-            guard elc.command.cryptid == 0 else {
-                return true
-            }
-        }
-        
-        return false
+        let encryptionCommands: [EncryptionCommand] = loadCommands.lazy.compactMap { $0 as? EncryptionCommand }
+        return encryptionCommands.contains { $0.command.cryptid != 0 }
     }
-    
-    private func getArchName(
-        for header: mach_header_64
-    ) -> String? {
-        if header.cputype != CPU_TYPE_ARM64 {
-            return "x86_64"
-        }
-        
+
+    private func getArchName(for header: mach_header_64) -> String? {
+        guard header.cputype == CPU_TYPE_ARM64 else { return nil }
         return header.cpusubtype == CPU_SUBTYPE_ARM64E ? "arm64e" : "arm64"
     }
-    
-    private func product<T, U>(
-        _ a: [T],
-        _ b: [U]
-    ) -> [(T, U)] {
+
+    private func product<T, U>(_ a: [T], _ b: [U]) -> [(T, U)] {
         var result: [(T, U)] = []
-        
-        for i in a {
-            for j in b {
-                result.append((i, j))
+        for first in a {
+            for second in b {
+                result.append((first, second))
             }
         }
-        
         return result
     }
 }

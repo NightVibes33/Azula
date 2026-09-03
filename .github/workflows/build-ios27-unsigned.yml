@@ -1,0 +1,116 @@
+name: Build iOS 27 Unsigned IPA
+
+on:
+  push:
+    branches:
+      - ios27-unsigned-ipa
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Xcode 27 real-device unsigned IPA
+    runs-on: xcode-27
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Azula
+        uses: actions/checkout@v4
+
+      - name: Verify Xcode 27 / iOS 27 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iPhoneOS SDK: ${SDK_VERSION}"
+          case "${SDK_VERSION}" in
+            27*) ;;
+            *) echo "Expected iOS 27 SDK, got ${SDK_VERSION}" >&2; exit 1 ;;
+          esac
+
+      - name: Install XcodeGen
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Prepare ZIPFoundation for Xcode 27
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf Vendor/ZIPFoundation
+          mkdir -p Vendor
+          git clone --depth 1 --branch 0.9.20 https://github.com/weichsel/ZIPFoundation.git Vendor/ZIPFoundation
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          manifest = Path("Vendor/ZIPFoundation/Package.swift")
+          text = manifest.read_text()
+          text = re.sub(r"\.iOS\(\.v(?:9|10|11|12|13|14)\)", ".iOS(.v15)", text)
+          manifest.write_text(text)
+          print(manifest.read_text())
+          PY
+
+      - name: Generate Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          xcodebuild -project Azula.xcodeproj -scheme Azula -showBuildSettings | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SDKROOT|SWIFT_VERSION|PRODUCT_BUNDLE_IDENTIFIER'
+
+      - name: Build unsigned real-device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          xcodebuild \
+            -project Azula.xcodeproj \
+            -scheme Azula \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$PWD/build/Build/Products/Release-iphoneos/Azula.app"
+          test -d "$APP_PATH"
+          test -f "$APP_PATH/Azula"
+
+          echo "Built executable:"
+          file "$APP_PATH/Azula"
+          lipo -archs "$APP_PATH/Azula"
+
+          rm -rf dist
+          mkdir -p dist/Payload
+          cp -R "$APP_PATH" dist/Payload/Azula.app
+          (
+            cd dist
+            /usr/bin/zip -qry Azula-iOS27-unsigned.ipa Payload
+          )
+
+          test -s dist/Azula-iOS27-unsigned.ipa
+          unzip -l dist/Azula-iOS27-unsigned.ipa | head -40
+          shasum -a 256 dist/Azula-iOS27-unsigned.ipa | tee dist/Azula-iOS27-unsigned.ipa.sha256
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Azula-iOS27-unsigned
+          path: |
+            dist/Azula-iOS27-unsigned.ipa
+            dist/Azula-iOS27-unsigned.ipa.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

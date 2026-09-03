@@ -22,9 +22,9 @@ struct LogMessageView: View {
     private var markerColor: Color {
         switch log.type {
         case .info:
-            return .green
+            return AzulaTheme.gold
         case .warn:
-            return .yellow
+            return AzulaTheme.orange
         case .error:
             return .red
         }
@@ -51,12 +51,13 @@ struct LogMessageView: View {
 
             Text(log.message)
                 .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(.primary)
+                .foregroundStyle(AzulaTheme.warmWhite.opacity(0.88))
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.vertical, 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(spokenType): \(log.message)")
     }

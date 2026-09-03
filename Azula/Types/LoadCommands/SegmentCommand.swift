@@ -9,7 +9,8 @@ import MachO
 
 struct SegmentCommand: LoadCommand {
     typealias T = segment_command_64
-    
+
     let offset: Int
     let command: T
+    let mh: MachHeader
 }

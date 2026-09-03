@@ -1,0 +1,224 @@
+name: Build iOS 27 Unsigned IPA
+
+on:
+  push:
+    branches:
+      - ios27-unsigned-ipa
+  pull_request:
+    branches:
+      - emt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Xcode 27 real-device unsigned IPA
+    runs-on: xcode-27
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Azula
+        uses: actions/checkout@v4
+
+      - name: Verify Xcode 27 / iOS 27 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iPhoneOS SDK: ${SDK_VERSION}"
+          case "${SDK_VERSION}" in
+            27*) ;;
+            *) echo "Expected iOS 27 SDK, got ${SDK_VERSION}" >&2; exit 1 ;;
+          esac
+
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen dpkg librsvg
+          xcodegen --version
+          dpkg-deb --version | head -1
+          rsvg-convert --version
+
+      - name: Prepare ZIPFoundation for Xcode 27
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf Vendor/ZIPFoundation
+          mkdir -p Vendor
+          git clone --depth 1 --branch 0.9.20 https://github.com/weichsel/ZIPFoundation.git Vendor/ZIPFoundation
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          manifest = Path("Vendor/ZIPFoundation/Package.swift")
+          text = manifest.read_text()
+          text = re.sub(r"\.iOS\(\.v(?:9|10|11|12|13|14)\)", ".iOS(.v15)", text)
+          manifest.write_text(text)
+          PY
+
+      - name: Render and validate fire AppIcon
+        shell: bash
+        run: |
+          set -euo pipefail
+          ICONSET="Azula/Assets.xcassets/AppIcon.appiconset"
+          SOURCE="$ICONSET/Azula-Fire.svg"
+          OUTPUT="$ICONSET/Azula-Fire.png"
+          MANIFEST="$ICONSET/Contents.json"
+
+          test -s "$SOURCE"
+          grep -q '"Azula-Fire.png"' "$MANIFEST"
+          if grep -q '"Azula.png"' "$MANIFEST"; then
+            echo "Old blue Azula.png is still referenced by the AppIcon manifest" >&2
+            exit 1
+          fi
+          if grep -q '"idiom" : "mac"' "$MANIFEST"; then
+            echo "Obsolete Mac app icon entries are still present" >&2
+            exit 1
+          fi
+          if find "$ICONSET" -maxdepth 1 -type f -name 'Azula-*.png' ! -name 'Azula-Fire.png' -print -quit | grep -q .; then
+            echo "A legacy raster icon is still present in AppIcon.appiconset" >&2
+            exit 1
+          fi
+
+          rsvg-convert -w 1024 -h 1024 "$SOURCE" -o "$OUTPUT"
+          test -s "$OUTPUT"
+          WIDTH="$(sips -g pixelWidth "$OUTPUT" | awk '/pixelWidth:/ {print $2}')"
+          HEIGHT="$(sips -g pixelHeight "$OUTPUT" | awk '/pixelHeight:/ {print $2}')"
+          echo "Rendered AppIcon: ${WIDTH}x${HEIGHT}"
+          test "$WIDTH" = "1024"
+          test "$HEIGHT" = "1024"
+          shasum -a 256 "$OUTPUT"
+          rm "$SOURCE"
+
+      - name: Bundle current ElleKit for iOS 27
+        shell: bash
+        run: |
+          set -euo pipefail
+          ELLEKIT_DEB_URL="https://raw.githubusercontent.com/dhinakg/ellekit-official/main/pool/ellekit_1.2_iphoneos-arm.deb"
+          rm -rf /tmp/azula-ellekit /tmp/azula-ellekit.deb
+          mkdir -p /tmp/azula-ellekit
+          curl -L --fail --retry 3 --retry-delay 2 "$ELLEKIT_DEB_URL" -o /tmp/azula-ellekit.deb
+          dpkg-deb -x /tmp/azula-ellekit.deb /tmp/azula-ellekit
+          ELLEKIT_PATH="$(find /tmp/azula-ellekit -type f -name 'libellekit.dylib' -print -quit)"
+          test -n "$ELLEKIT_PATH"
+          cp "$ELLEKIT_PATH" Azula/libellekit.dylib
+          ARCHS="$(lipo -archs Azula/libellekit.dylib)"
+          echo "ElleKit architectures: $ARCHS"
+          case " $ARCHS " in
+            *" arm64 "*) ;;
+            *) echo "ElleKit package does not contain arm64" >&2; exit 1 ;;
+          esac
+
+      - name: Generate Xcode project and validate document types
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          test -f Azula/Info.plist
+
+          SETTINGS="$(xcodebuild -project Azula.xcodeproj -scheme Azula -sdk iphoneos -destination 'generic/platform=iOS' -showBuildSettings)"
+          echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SDKROOT|SWIFT_VERSION|PRODUCT_BUNDLE_IDENTIFIER|TARGETED_DEVICE_FAMILY|SUPPORTED_PLATFORMS|MARKETING_VERSION|CURRENT_PROJECT_VERSION|INFOPLIST_FILE'
+          echo "$SETTINGS" | grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 27.0'
+          echo "$SETTINGS" | grep -q 'TARGETED_DEVICE_FAMILY = 1'
+          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.2'
+          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 5'
+
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeIdentifier' Azula/Info.plist | grep -qx 'com.nightvibes33.azula.ipa'
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:0' Azula/Info.plist | grep -qx 'ipa'
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:1:UTTypeIdentifier' Azula/Info.plist | grep -qx 'com.nightvibes33.azula.dylib'
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:1:UTTypeTagSpecification:public.filename-extension:0' Azula/Info.plist | grep -qx 'dylib'
+
+          grep -q 'allowedContentTypes: \[.azulaIPA\]' Azula/Views/FilePickerView.swift
+          grep -q 'allowedContentTypes: \[.azulaDylib\]' Azula/Views/FilePickerView.swift
+          grep -q 'importedAs: "com.nightvibes33.azula.ipa"' Azula/Views/FilePickerView.swift
+          grep -q 'importedAs: "com.nightvibes33.azula.dylib"' Azula/Views/FilePickerView.swift
+          if grep -q 'allowedContentTypes: \[.item\]' Azula/Views/FilePickerView.swift || grep -q 'allowedContentTypes: \[.data\]' Azula/Views/FilePickerView.swift; then
+            echo "Broad Files picker fallback is still present" >&2
+            exit 1
+          fi
+
+      - name: Build unsigned real-device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          xcodebuild \
+            -project Azula.xcodeproj \
+            -scheme Azula \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+
+      - name: Validate sideloaded iOS 27 app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$PWD/build/Build/Products/Release-iphoneos/Azula.app"
+          test -d "$APP_PATH"
+          test -f "$APP_PATH/Azula"
+          test -f "$APP_PATH/libellekit.dylib"
+          test -f "$APP_PATH/Assets.car"
+
+          file "$APP_PATH/Azula"
+          test "$(lipo -archs "$APP_PATH/Azula")" = "arm64"
+
+          MINIMUM_OS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP_PATH/Info.plist")"
+          DEVICE_FAMILY="$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$APP_PATH/Info.plist")"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")"
+          BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
+          echo "MinimumOSVersion=$MINIMUM_OS UIDeviceFamily[0]=$DEVICE_FAMILY version=$VERSION build=$BUILD"
+          test "$MINIMUM_OS" = "27.0"
+          test "$DEVICE_FAMILY" = "1"
+          test "$VERSION" = "2.1.2"
+          test "$BUILD" = "5"
+
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeIdentifier' "$APP_PATH/Info.plist" | grep -qx 'com.nightvibes33.azula.ipa'
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:1:UTTypeIdentifier' "$APP_PATH/Info.plist" | grep -qx 'com.nightvibes33.azula.dylib'
+
+          /usr/bin/assetutil --info "$APP_PATH/Assets.car" > /tmp/azula-assets.json
+          grep -q 'AppIcon' /tmp/azula-assets.json
+
+          if grep -R -n 'apple-magnifier://install' Azula --include='*.swift'; then
+            echo "TrollStore-only install path still exists" >&2
+            exit 1
+          fi
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$PWD/build/Build/Products/Release-iphoneos/Azula.app"
+          ICON_PATH="$PWD/Azula/Assets.xcassets/AppIcon.appiconset/Azula-Fire.png"
+          rm -rf dist
+          mkdir -p dist/Payload
+          cp -R "$APP_PATH" dist/Payload/Azula.app
+          cp "$ICON_PATH" dist/Azula-Fire-AppIcon.png
+          (
+            cd dist
+            /usr/bin/zip -qry Azula-iOS27-unsigned.ipa Payload
+          )
+          test -s dist/Azula-iOS27-unsigned.ipa
+          shasum -a 256 dist/Azula-iOS27-unsigned.ipa | tee dist/Azula-iOS27-unsigned.ipa.sha256
+          shasum -a 256 dist/Azula-Fire-AppIcon.png | tee dist/Azula-Fire-AppIcon.png.sha256
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Azula-iOS27-unsigned
+          path: |
+            dist/Azula-iOS27-unsigned.ipa
+            dist/Azula-iOS27-unsigned.ipa.sha256
+            dist/Azula-Fire-AppIcon.png
+            dist/Azula-Fire-AppIcon.png.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

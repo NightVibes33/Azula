@@ -1,0 +1,82 @@
+name: Azula
+options:
+  bundleIdPrefix: com.nightvibes33
+  deploymentTarget:
+    iOS: "27.0"
+  xcodeVersion: "27.0"
+  createIntermediateGroups: true
+
+packages:
+  ZIPFoundation:
+    path: Vendor/ZIPFoundation
+
+targets:
+  Azula:
+    type: application
+    platform: iOS
+    deploymentTarget: "27.0"
+    sources:
+      - path: Azula
+        excludes:
+          - Assets.xcassets
+          - Azula.entitlements
+          - libellekit.dylib
+          - Info.plist
+      - path: Azula/Assets.xcassets
+        buildPhase: resources
+      - path: Azula/libellekit.dylib
+        buildPhase: resources
+    dependencies:
+      - package: ZIPFoundation
+        product: ZIPFoundation
+    info:
+      path: Azula/Info.plist
+      properties:
+        CFBundleDisplayName: Azula
+        LSApplicationCategoryType: public.app-category.developer-tools
+        LSRequiresIPhoneOS: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.nightvibes33.azula.ipa
+            UTTypeDescription: iOS Application Package
+            UTTypeConformsTo:
+              - public.archive
+              - public.data
+              - public.content
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - ipa
+          - UTTypeIdentifier: com.nightvibes33.azula.dylib
+            UTTypeDescription: Mach-O Dynamic Library
+            UTTypeConformsTo:
+              - public.unix-executable
+              - public.data
+              - public.content
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - dylib
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nightvibes33.azula
+        PRODUCT_NAME: Azula
+        MARKETING_VERSION: 2.1.2
+        CURRENT_PROJECT_VERSION: 5
+        IPHONEOS_DEPLOYMENT_TARGET: 27.0
+        SWIFT_VERSION: 5.0
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTED_PLATFORMS: iphoneos
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+        DEVELOPMENT_TEAM: ""
+    scheme:
+      gatherCoverageData: false

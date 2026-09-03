@@ -10,11 +10,19 @@ import Combine
 final class Console: ObservableObject {
     static let shared: Console = .init()
     @Published private(set) var logs: [Log] = []
-    
+
     func log(_ message: String, type: LogType) {
         Task {
             await MainActor.run {
                 self.logs.append(Log(message: message, type: type))
+            }
+        }
+    }
+
+    func clear() {
+        Task {
+            await MainActor.run {
+                self.logs.removeAll()
             }
         }
     }

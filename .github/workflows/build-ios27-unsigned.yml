@@ -67,18 +67,17 @@ jobs:
           ICON="$ICONSET/Azula-Exact.png"
           MANIFEST="$ICONSET/Contents.json"
           SOURCE="/tmp/Azula-user-upload.jpg"
-          SOURCE_URL='https://media.canva.com/v2/image-resize/format:JPG/height:1254/quality:100/uri:ifs%3A%2F%2FM%2F4e77c808-6639-4f67-9039-9c7746509579/watermark:F/width:1254?csig=AAAAAAAAAAAAAAAAAAAAAIPPmR8fbIfVj5WDvJF0zNRF5i1UG_9QX6tGnH_pUFsL&exp=1788496993&osig=AAAAAAAAAAAAAAAAAAAAAHw3BBQTjtZJ8VavfluuNcUyZXvZLa9ZEcMI8k6E0zsC&signer=media-rpc&x-canva-quality=thumbnail'
+          SOURCE_URL='https://media.canva.com/v2/image-resize/format:JPG/height:200/quality:75/uri:ifs%3A%2F%2FM%2F4e77c808-6639-4f67-9039-9c7746509579/watermark:F/width:200?csig=AAAAAAAAAAAAAAAAAAAAAIPPmR8fbIfVj5WDvJF0zNRF5i1UG_9QX6tGnH_pUFsL&exp=1788496993&osig=AAAAAAAAAAAAAAAAAAAAAHw3BBQTjtZJ8VavfluuNcUyZXvZLa9ZEcMI8k6E0zsC&signer=media-rpc&x-canva-quality=thumbnail'
 
-          # This is a full-resolution rendition of the user's uploaded fire-icon asset,
-          # not a generated SVG/redraw.
+          # This is the user's uploaded fire-icon asset, not a generated SVG/redraw.
           curl -L --fail --retry 3 --retry-delay 2 "$SOURCE_URL" -o "$SOURCE"
           test -s "$SOURCE"
 
           SRC_W="$(sips -g pixelWidth "$SOURCE" | awk '/pixelWidth:/ {print $2}')"
           SRC_H="$(sips -g pixelHeight "$SOURCE" | awk '/pixelHeight:/ {print $2}')"
           echo "Uploaded icon source received: ${SRC_W}x${SRC_H}"
-          test "$SRC_W" = "1254"
-          test "$SRC_H" = "1254"
+          test "$SRC_W" = "200"
+          test "$SRC_H" = "200"
 
           rm -f "$ICONSET/Azula-Fire.svg" "$ICONSET/Azula-Fire.png" "$ICONSET/Azula.png"
           sips -z 1024 1024 -s format png "$SOURCE" --out "$ICON" >/dev/null

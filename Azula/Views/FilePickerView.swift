@@ -2,8 +2,6 @@
 //  FilePickerView.swift
 //  Azula
 //
-//  Created by Lilliana on 16/05/2023.
-//
 
 import Foundation
 import SwiftUI
@@ -14,25 +12,24 @@ struct FilePickerView: View {
     @Binding var dylibURLs: [URL]
     @Binding var isShowing: Bool
 
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
     @State private var ipaImporting = false
     @State private var dylibImporting = false
 
     private let console: Console = .shared
     private let fileManager = FileManager.default
 
-    // Azula owns these two UTIs. project.yml exports them and binds the
-    // filename extensions through Launch Services, so the Files picker can
-    // restrict each browser to the exact file type instead of falling back
-    // to public.item/public.data.
+    // IMPORTANT: use the actual system/imported identifiers that existing
+    // files in Files resolve to. Custom Azula-exported UTIs make existing
+    // .ipa/.dylib files appear disabled because their content type does not
+    // equal Azula's invented identifier.
     private static let ipaType = UTType(
-        exportedAs: "com.nightvibes33.azula.ipa",
-        conformingTo: .archive
+        importedAs: "com.apple.itunes.ipa",
+        conformingTo: .data
     )
+
     private static let dylibType = UTType(
-        exportedAs: "com.nightvibes33.azula.dylib",
-        conformingTo: .unixExecutable
+        importedAs: "com.apple.mach-o-dylib",
+        conformingTo: .data
     )
 
     var body: some View {
@@ -40,137 +37,106 @@ struct FilePickerView: View {
             ZStack {
                 AzulaBackground()
 
-                GeometryReader { geometry in
-                    let compact = geometry.size.width < 375
-                    let horizontalPadding = min(max(geometry.size.width * 0.055, 16), 26)
+                ScrollView {
+                    VStack(spacing: 18) {
+                        VStack(spacing: 8) {
+                            AzulaFlameMark(size: 62)
+                            Text("Patch Files")
+                                .font(.title.bold())
+                                .foregroundStyle(AzulaTheme.warmWhite)
 
-                    ScrollView {
-                        VStack(spacing: compact ? 14 : 18) {
-                            VStack(spacing: 8) {
-                                AzulaFlameMark(size: compact ? 54 : 64)
-                                Text("Patch Files")
-                                    .font(.title.bold())
-                                    .foregroundStyle(AzulaTheme.warmWhite)
-                                Text("Choose only the IPA and dylib files Azula needs. Imports are copied into Azula's sandbox; the originals stay untouched.")
-                                    .font(.footnote)
-                                    .foregroundStyle(AzulaTheme.secondaryText)
-                                    .multilineTextAlignment(.center)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(.top, 10)
+                            Text("IPA and dylib pickers use the real Apple file identifiers, then verify the filename extension before importing.")
+                                .font(.footnote)
+                                .foregroundStyle(AzulaTheme.secondaryText)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.top, 10)
 
-                            AzulaSectionHeader(title: "Target", subtitle: "Only .ipa files are selectable here.")
+                        AzulaSectionHeader(
+                            title: "Target IPA",
+                            subtitle: "Hardcoded type: com.apple.itunes.ipa"
+                        )
 
-                            AzulaCard {
-                                VStack(alignment: .leading, spacing: 14) {
-                                    selectionRow(
-                                        title: ipaURL == nil ? "Choose IPA" : "Selected IPA",
-                                        value: ipaURL?.lastPathComponent,
-                                        icon: "shippingbox.fill",
-                                        ready: ipaURL != nil
-                                    )
+                        AzulaCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                fileStatus(
+                                    title: ipaURL == nil ? "No IPA selected" : "IPA selected",
+                                    value: ipaURL?.lastPathComponent,
+                                    icon: "shippingbox.fill",
+                                    ready: ipaURL != nil
+                                )
 
-                                    Button {
-                                        ipaImporting = true
-                                    } label: {
-                                        Label(ipaURL == nil ? "Browse IPA Files" : "Replace IPA", systemImage: "folder")
-                                            .font(.subheadline.weight(.semibold))
-                                            .frame(maxWidth: .infinity)
-                                            .frame(minHeight: 48)
-                                    }
-                                    .buttonStyle(AzulaSecondaryButtonStyle())
-                                    .fileImporter(
-                                        isPresented: $ipaImporting,
-                                        allowedContentTypes: [Self.ipaType]
-                                    ) { result in
-                                        switch result {
-                                        case .success(let sourceURL):
-                                            guard validateSelectedFile(sourceURL, requiredExtension: "ipa") else { return }
-                                            ipaURL = importFile(sourceURL, folder: "IPA")
-                                        case .failure(let error):
-                                            console.log("IPA import failed: \(error.localizedDescription)", type: .error)
-                                        }
-                                    }
+                                Button {
+                                    ipaImporting = true
+                                } label: {
+                                    Label(ipaURL == nil ? "Choose .ipa" : "Replace .ipa", systemImage: "folder")
+                                        .font(.subheadline.weight(.semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .frame(minHeight: 48)
                                 }
-                            }
-
-                            AzulaSectionHeader(title: "Injected Libraries", subtitle: "Only .dylib files are selectable here.")
-
-                            AzulaCard {
-                                VStack(alignment: .leading, spacing: 14) {
-                                    selectionRow(
-                                        title: dylibURLs.isEmpty ? "Choose Dylibs" : "Dylibs Ready",
-                                        value: dylibURLs.isEmpty ? nil : "\(dylibURLs.count) selected",
-                                        icon: "puzzlepiece.extension.fill",
-                                        ready: !dylibURLs.isEmpty
-                                    )
-
-                                    if !dylibURLs.isEmpty {
-                                        VStack(spacing: 8) {
-                                            ForEach(dylibURLs, id: \.self) { url in
-                                                dylibRow(url)
-                                            }
-                                        }
-                                    }
-
-                                    Button {
-                                        dylibImporting = true
-                                    } label: {
-                                        Label(dylibURLs.isEmpty ? "Browse Dylib Files" : "Change Dylibs", systemImage: "folder.badge.plus")
-                                            .font(.subheadline.weight(.semibold))
-                                            .frame(maxWidth: .infinity)
-                                            .frame(minHeight: 48)
-                                    }
-                                    .buttonStyle(AzulaSecondaryButtonStyle())
-                                    .fileImporter(
-                                        isPresented: $dylibImporting,
-                                        allowedContentTypes: [Self.dylibType],
-                                        allowsMultipleSelection: true
-                                    ) { result in
-                                        switch result {
-                                        case .success(let sourceURLs):
-                                            let validDylibs = sourceURLs.filter {
-                                                validateSelectedFile($0, requiredExtension: "dylib", logFailure: false)
-                                            }
-
-                                            for rejectedURL in sourceURLs where !validDylibs.contains(rejectedURL) {
-                                                console.log("Skipped non-dylib file: \(rejectedURL.lastPathComponent)", type: .warn)
-                                            }
-
-                                            guard !validDylibs.isEmpty else {
-                                                console.log("No .dylib files were selected", type: .error)
-                                                return
-                                            }
-
-                                            dylibURLs = importDylibs(validDylibs)
-                                        case .failure(let error):
-                                            console.log("Dylib import failed: \(error.localizedDescription)", type: .error)
-                                        }
-                                    }
-                                }
-                            }
-
-                            AzulaCard {
-                                HStack(alignment: .top, spacing: 12) {
-                                    Image(systemName: "checkmark.shield.fill")
-                                        .font(.title3)
-                                        .foregroundStyle(AzulaTheme.fireGradient)
-                                        .accessibilityHidden(true)
-
-                                    Text("Azula declares .ipa and .dylib as separate exported document types. Each picker requests exactly one of those types, then verifies the filename extension again before importing.")
-                                        .font(.footnote)
-                                        .foregroundStyle(AzulaTheme.secondaryText)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
+                                .buttonStyle(AzulaSecondaryButtonStyle())
                             }
                         }
-                        .frame(maxWidth: 680)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, horizontalPadding)
-                        .padding(.bottom, 30)
+
+                        AzulaSectionHeader(
+                            title: "Injected Dylibs",
+                            subtitle: "Hardcoded type: com.apple.mach-o-dylib"
+                        )
+
+                        AzulaCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                fileStatus(
+                                    title: dylibURLs.isEmpty ? "No dylibs selected" : "Dylibs selected",
+                                    value: dylibURLs.isEmpty ? nil : "\(dylibURLs.count) selected",
+                                    icon: "puzzlepiece.extension.fill",
+                                    ready: !dylibURLs.isEmpty
+                                )
+
+                                ForEach(dylibURLs, id: \.self) { url in
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "doc.badge.gearshape")
+                                            .foregroundStyle(AzulaTheme.orange)
+
+                                        Text(url.lastPathComponent)
+                                            .font(.footnote)
+                                            .foregroundStyle(AzulaTheme.secondaryText)
+                                            .lineLimit(2)
+                                            .truncationMode(.middle)
+
+                                        Spacer()
+
+                                        Button(role: .destructive) {
+                                            dylibURLs.removeAll { $0 == url }
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(10)
+                                    .background(
+                                        Color.black.opacity(0.22),
+                                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                    )
+                                }
+
+                                Button {
+                                    dylibImporting = true
+                                } label: {
+                                    Label(dylibURLs.isEmpty ? "Choose .dylib" : "Change .dylib files", systemImage: "folder.badge.plus")
+                                        .font(.subheadline.weight(.semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .frame(minHeight: 48)
+                                }
+                                .buttonStyle(AzulaSecondaryButtonStyle())
+                            }
+                        }
                     }
-                    .scrollIndicators(.hidden)
+                    .frame(maxWidth: 680)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 30)
                 }
+                .scrollIndicators(.hidden)
             }
             .navigationTitle("Files")
             .navigationBarTitleDisplayMode(.inline)
@@ -190,17 +156,58 @@ struct FilePickerView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .fileImporter(
+            isPresented: $ipaImporting,
+            allowedContentTypes: [Self.ipaType],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let sourceURL = urls.first else { return }
+                guard validateSelectedFile(sourceURL, requiredExtension: "ipa") else { return }
+                ipaURL = importFile(sourceURL, folder: "IPA")
+            case .failure(let error):
+                console.log("IPA import failed: \(error.localizedDescription)", type: .error)
+            }
+        }
+        .fileImporter(
+            isPresented: $dylibImporting,
+            allowedContentTypes: [Self.dylibType],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                let valid = urls.filter {
+                    validateSelectedFile($0, requiredExtension: "dylib", logFailure: false)
+                }
+
+                for rejected in urls where !valid.contains(rejected) {
+                    console.log("Skipped non-dylib file: \(rejected.lastPathComponent)", type: .warn)
+                }
+
+                guard !valid.isEmpty else {
+                    console.log("No .dylib files were selected", type: .error)
+                    return
+                }
+
+                dylibURLs = importDylibs(valid)
+            case .failure(let error):
+                console.log("Dylib import failed: \(error.localizedDescription)", type: .error)
+            }
+        }
     }
 
     @ViewBuilder
-    private func selectionRow(title: String, value: String?, icon: String, ready: Bool) -> some View {
+    private func fileStatus(title: String, value: String?, icon: String, ready: Bool) -> some View {
         HStack(alignment: .top, spacing: 13) {
             Image(systemName: icon)
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(AzulaTheme.fireGradient)
                 .frame(width: 46, height: 46)
-                .background(AzulaTheme.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .accessibilityHidden(true)
+                .background(
+                    AzulaTheme.orange.opacity(0.09),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
@@ -211,52 +218,21 @@ struct FilePickerView: View {
                     Text(value)
                         .font(.footnote)
                         .foregroundStyle(AzulaTheme.secondaryText)
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
+                        .lineLimit(2)
                         .truncationMode(.middle)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if ready {
-                    AzulaStatusBadge(text: "Ready", systemImage: "checkmark.circle.fill", tint: AzulaTheme.gold)
-                        .padding(.top, 3)
+                    AzulaStatusBadge(
+                        text: "Ready",
+                        systemImage: "checkmark.circle.fill",
+                        tint: AzulaTheme.gold
+                    )
+                    .padding(.top, 3)
                 }
             }
 
             Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func dylibRow(_ url: URL) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "doc.badge.gearshape")
-                .foregroundStyle(AzulaTheme.orange)
-                .frame(width: 24)
-
-            Text(url.lastPathComponent)
-                .font(.footnote)
-                .foregroundStyle(AzulaTheme.secondaryText)
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
-                .truncationMode(.middle)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 6)
-
-            Button(role: .destructive) {
-                dylibURLs.removeAll { $0 == url }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(Color.red.opacity(0.85))
-                    .font(.body)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(url.lastPathComponent)")
-        }
-        .padding(10)
-        .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(AzulaTheme.gunmetalLight.opacity(0.26), lineWidth: 1)
         }
     }
 
@@ -265,7 +241,7 @@ struct FilePickerView: View {
         requiredExtension: String,
         logFailure: Bool = true
     ) -> Bool {
-        guard sourceURL.pathExtension.lowercased() == requiredExtension.lowercased() else {
+        guard sourceURL.pathExtension.caseInsensitiveCompare(requiredExtension) == .orderedSame else {
             if logFailure {
                 console.log(
                     "Expected a .\(requiredExtension) file, got \(sourceURL.lastPathComponent)",
@@ -274,25 +250,12 @@ struct FilePickerView: View {
             }
             return false
         }
-
-        do {
-            let values = try sourceURL.resourceValues(forKeys: [.isRegularFileKey])
-            if values.isRegularFile == false {
-                if logFailure {
-                    console.log("Selected item is not a regular file: \(sourceURL.lastPathComponent)", type: .error)
-                }
-                return false
-            }
-        } catch {
-            // Some remote providers defer metadata until the security-scoped read.
-            // The coordinated copy below remains the authoritative access check.
-        }
-
         return true
     }
 
     private func importDylibs(_ sourceURLs: [URL]) -> [URL] {
         let root = importRoot.appendingPathComponent("Dylibs", isDirectory: true)
+
         do {
             if fileManager.fileExists(atPath: root.path) {
                 try fileManager.removeItem(at: root)
@@ -312,7 +275,11 @@ struct FilePickerView: View {
                 console.log("Duplicate dylib filename skipped: \(name)", type: .warn)
                 continue
             }
-            if let destination = copySecurityScopedFile(sourceURL, to: root.appendingPathComponent(name)) {
+
+            if let destination = copySecurityScopedFile(
+                sourceURL,
+                to: root.appendingPathComponent(name)
+            ) {
                 imported.append(destination)
             }
         }
@@ -322,6 +289,7 @@ struct FilePickerView: View {
 
     private func importFile(_ sourceURL: URL, folder: String) -> URL? {
         let root = importRoot.appendingPathComponent(folder, isDirectory: true)
+
         do {
             if fileManager.fileExists(atPath: root.path) {
                 try fileManager.removeItem(at: root)
@@ -332,7 +300,10 @@ struct FilePickerView: View {
             return nil
         }
 
-        return copySecurityScopedFile(sourceURL, to: root.appendingPathComponent(sourceURL.lastPathComponent))
+        return copySecurityScopedFile(
+            sourceURL,
+            to: root.appendingPathComponent(sourceURL.lastPathComponent)
+        )
     }
 
     private func copySecurityScopedFile(_ sourceURL: URL, to destinationURL: URL) -> URL? {
@@ -360,12 +331,18 @@ struct FilePickerView: View {
         }
 
         if let coordinationError {
-            console.log("Couldn't access \(sourceURL.lastPathComponent): \(coordinationError.localizedDescription)", type: .error)
+            console.log(
+                "Couldn't access \(sourceURL.lastPathComponent): \(coordinationError.localizedDescription)",
+                type: .error
+            )
             return nil
         }
 
         if let copyError {
-            console.log("Couldn't import \(sourceURL.lastPathComponent): \(copyError.localizedDescription)", type: .error)
+            console.log(
+                "Couldn't import \(sourceURL.lastPathComponent): \(copyError.localizedDescription)",
+                type: .error
+            )
             return nil
         }
 

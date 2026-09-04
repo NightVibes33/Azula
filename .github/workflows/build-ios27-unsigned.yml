@@ -92,28 +92,23 @@ jobs:
           echo "ElleKit arches: $ARCHS"
           case " $ARCHS " in *" arm64 "*) ;; *) exit 1 ;; esac
 
-      - name: Validate selectable IPA and dylib imports
+      - name: Validate UIKit document picker imports
         shell: bash
         run: |
           set -euo pipefail
           FILE="Azula/Views/FilePickerView.swift"
           PROJECT="project.yml"
 
-          grep -q 'importedAs: "com.apple.itunes.ipa"' "$FILE"
-          grep -q 'importedAs: "com.apple.mach-o-dylib"' "$FILE"
-          grep -q 'ipaPickerTypes' "$FILE"
-          grep -q 'dylibPickerTypes' "$FILE"
-          grep -q 'allowedContentTypes: Self.ipaPickerTypes' "$FILE"
-          grep -q 'allowedContentTypes: Self.dylibPickerTypes' "$FILE"
-          grep -q '\.zip' "$FILE"
-          grep -q '\.archive' "$FILE"
-          grep -q '\.unixExecutable' "$FILE"
-          grep -q '\.data' "$FILE"
+          grep -q 'UIDocumentPickerViewController' "$FILE"
+          grep -q 'forOpeningContentTypes: \[.item\]' "$FILE"
+          grep -q 'UIDocumentPickerDelegate' "$FILE"
+          grep -q 'didPickDocumentsAt urls' "$FILE"
+          grep -q 'allowsMultipleSelection = allowsMultipleSelection' "$FILE"
+          ! grep -q '\.fileImporter(' "$FILE"
           grep -q 'requiredExtension: "ipa"' "$FILE"
           grep -q 'requiredExtension: "dylib"' "$FILE"
           grep -q 'isValidIPA' "$FILE"
           grep -q 'isValidMachO' "$FILE"
-          grep -q 'fileDialogBrowserOptions(.displayFileExtensions)' "$FILE"
 
           grep -q 'UTImportedTypeDeclarations:' "$PROJECT"
           ! grep -q 'UTExportedTypeDeclarations:' "$PROJECT"
@@ -129,8 +124,8 @@ jobs:
           echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|TARGETED_DEVICE_FAMILY|MARKETING_VERSION|CURRENT_PROJECT_VERSION'
           echo "$SETTINGS" | grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 27.0'
           echo "$SETTINGS" | grep -q 'TARGETED_DEVICE_FAMILY = 1'
-          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.5'
-          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 8'
+          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.6'
+          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 9'
 
       - name: Build unsigned real-device app
         shell: bash
@@ -164,8 +159,8 @@ jobs:
 
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$PLIST")" = "27.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$PLIST")" = "1"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "2.1.5"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "8"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "2.1.6"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "9"
 
           IPA_UTI="$(/usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeIdentifier' "$PLIST")"
           IPA_EXT="$(/usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:0' "$PLIST")"

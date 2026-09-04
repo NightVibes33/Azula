@@ -18,10 +18,10 @@ struct FilePickerView: View {
     private let console: Console = .shared
     private let fileManager = FileManager.default
 
-    // IMPORTANT: use the actual system/imported identifiers that existing
-    // files in Files resolve to. Custom Azula-exported UTIs make existing
-    // .ipa/.dylib files appear disabled because their content type does not
-    // equal Azula's invented identifier.
+    // Keep the real Apple identifiers, but include provider fallbacks.
+    // Files providers are allowed to surface an IPA as an archive/data file
+    // and a dylib as an executable/data file. A strict single-UTI picker can
+    // therefore gray out a perfectly valid file before Azula ever sees it.
     private static let ipaType = UTType(
         importedAs: "com.apple.itunes.ipa",
         conformingTo: .data
@@ -31,6 +31,19 @@ struct FilePickerView: View {
         importedAs: "com.apple.mach-o-dylib",
         conformingTo: .data
     )
+
+    private static let ipaPickerTypes: [UTType] = [
+        ipaType,
+        .zip,
+        .archive,
+        .data
+    ]
+
+    private static let dylibPickerTypes: [UTType] = [
+        dylibType,
+        .unixExecutable,
+        .data
+    ]
 
     var body: some View {
         NavigationStack {
@@ -45,7 +58,7 @@ struct FilePickerView: View {
                                 .font(.title.bold())
                                 .foregroundStyle(AzulaTheme.warmWhite)
 
-                            Text("IPA and dylib pickers use the real Apple file identifiers, then verify the filename extension before importing.")
+                            Text("Files providers can report IPA and dylib files under broader system types. Azula accepts those provider types, then strictly verifies the extension and file signature before importing.")
                                 .font(.footnote)
                                 .foregroundStyle(AzulaTheme.secondaryText)
                                 .multilineTextAlignment(.center)
@@ -54,7 +67,7 @@ struct FilePickerView: View {
 
                         AzulaSectionHeader(
                             title: "Target IPA",
-                            subtitle: "Hardcoded type: com.apple.itunes.ipa"
+                            subtitle: "Select an .ipa file. Azula verifies that it is a ZIP-based IPA container."
                         )
 
                         AzulaCard {
@@ -80,7 +93,7 @@ struct FilePickerView: View {
 
                         AzulaSectionHeader(
                             title: "Injected Dylibs",
-                            subtitle: "Hardcoded type: com.apple.mach-o-dylib"
+                            subtitle: "Select one or more .dylib files. Azula verifies Mach-O magic before accepting them."
                         )
 
                         AzulaCard {
@@ -158,43 +171,55 @@ struct FilePickerView: View {
         .preferredColorScheme(.dark)
         .fileImporter(
             isPresented: $ipaImporting,
-            allowedContentTypes: [Self.ipaType],
+            allowedContentTypes: Self.ipaPickerTypes,
             allowsMultipleSelection: false
         ) { result in
             switch result {
             case .success(let urls):
                 guard let sourceURL = urls.first else { return }
                 guard validateSelectedFile(sourceURL, requiredExtension: "ipa") else { return }
-                ipaURL = importFile(sourceURL, folder: "IPA")
+                guard let imported = importFile(sourceURL, folder: "IPA") else { return }
+
+                guard isValidIPA(imported) else {
+                    try? fileManager.removeItem(at: imported)
+                    console.log("Rejected \(sourceURL.lastPathComponent): the file does not have a valid ZIP/IPA signature", type: .error)
+                    return
+                }
+
+                ipaURL = imported
+                console.log("Validated IPA: \(sourceURL.lastPathComponent)", type: .info)
+
             case .failure(let error):
                 console.log("IPA import failed: \(error.localizedDescription)", type: .error)
             }
         }
         .fileImporter(
             isPresented: $dylibImporting,
-            allowedContentTypes: [Self.dylibType],
+            allowedContentTypes: Self.dylibPickerTypes,
             allowsMultipleSelection: true
         ) { result in
             switch result {
             case .success(let urls):
-                let valid = urls.filter {
+                let extensionValid = urls.filter {
                     validateSelectedFile($0, requiredExtension: "dylib", logFailure: false)
                 }
 
-                for rejected in urls where !valid.contains(rejected) {
+                for rejected in urls where !extensionValid.contains(rejected) {
                     console.log("Skipped non-dylib file: \(rejected.lastPathComponent)", type: .warn)
                 }
 
-                guard !valid.isEmpty else {
+                guard !extensionValid.isEmpty else {
                     console.log("No .dylib files were selected", type: .error)
                     return
                 }
 
-                dylibURLs = importDylibs(valid)
+                dylibURLs = importDylibs(extensionValid)
+
             case .failure(let error):
                 console.log("Dylib import failed: \(error.localizedDescription)", type: .error)
             }
         }
+        .fileDialogBrowserOptions(.displayFileExtensions)
     }
 
     @ViewBuilder
@@ -276,12 +301,21 @@ struct FilePickerView: View {
                 continue
             }
 
-            if let destination = copySecurityScopedFile(
+            guard let destination = copySecurityScopedFile(
                 sourceURL,
                 to: root.appendingPathComponent(name)
-            ) {
-                imported.append(destination)
+            ) else {
+                continue
             }
+
+            guard isValidMachO(destination) else {
+                try? fileManager.removeItem(at: destination)
+                console.log("Rejected \(name): the file does not have a Mach-O/fat Mach-O signature", type: .error)
+                continue
+            }
+
+            console.log("Validated dylib: \(name)", type: .info)
+            imported.append(destination)
         }
 
         return imported
@@ -348,6 +382,40 @@ struct FilePickerView: View {
 
         console.log("Imported \(sourceURL.lastPathComponent)", type: .info)
         return destinationURL
+    }
+
+    private func firstBytes(of url: URL, count: Int = 4) -> [UInt8] {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: count), let data else { return [] }
+        return Array(data)
+    }
+
+    private func isValidIPA(_ url: URL) -> Bool {
+        let bytes = firstBytes(of: url)
+        guard bytes.count >= 4 else { return false }
+
+        return bytes == [0x50, 0x4B, 0x03, 0x04] ||
+               bytes == [0x50, 0x4B, 0x05, 0x06] ||
+               bytes == [0x50, 0x4B, 0x07, 0x08]
+    }
+
+    private func isValidMachO(_ url: URL) -> Bool {
+        let bytes = firstBytes(of: url)
+        guard bytes.count >= 4 else { return false }
+
+        let acceptedMagics: [[UInt8]] = [
+            [0xFE, 0xED, 0xFA, 0xCE], // MH_MAGIC
+            [0xCE, 0xFA, 0xED, 0xFE], // MH_CIGAM
+            [0xFE, 0xED, 0xFA, 0xCF], // MH_MAGIC_64
+            [0xCF, 0xFA, 0xED, 0xFE], // MH_CIGAM_64
+            [0xCA, 0xFE, 0xBA, 0xBE], // FAT_MAGIC
+            [0xBE, 0xBA, 0xFE, 0xCA], // FAT_CIGAM
+            [0xCA, 0xFE, 0xBA, 0xBF], // FAT_MAGIC_64
+            [0xBF, 0xBA, 0xFE, 0xCA]  // FAT_CIGAM_64
+        ]
+
+        return acceptedMagics.contains(bytes)
     }
 
     private var importRoot: URL {

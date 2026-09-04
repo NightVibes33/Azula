@@ -3,11 +3,12 @@ name: Build iOS 27 Unsigned IPA
 on:
   push:
     branches:
-      - ios27-unsigned-ipa
+      - main
       - ios27-final-exact
+      - ios27-unsigned-ipa
   pull_request:
     branches:
-      - emt
+      - main
   workflow_dispatch:
 
 permissions:

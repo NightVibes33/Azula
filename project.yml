@@ -32,7 +32,13 @@ targets:
     info:
       path: Azula/Info.plist
       properties:
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleName: $(PRODUCT_NAME)
         CFBundleDisplayName: Azula
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.developer-tools
         LSRequiresIPhoneOS: true
         UIFileSharingEnabled: true

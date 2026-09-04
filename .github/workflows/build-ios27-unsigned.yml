@@ -92,7 +92,7 @@ jobs:
           echo "ElleKit arches: $ARCHS"
           case " $ARCHS " in *" arm64 "*) ;; *) exit 1 ;; esac
 
-      - name: Validate hardcoded IPA and dylib types
+      - name: Validate selectable IPA and dylib imports
         shell: bash
         run: |
           set -euo pipefail
@@ -101,21 +101,24 @@ jobs:
 
           grep -q 'importedAs: "com.apple.itunes.ipa"' "$FILE"
           grep -q 'importedAs: "com.apple.mach-o-dylib"' "$FILE"
-          grep -q 'allowedContentTypes: \[Self.ipaType\]' "$FILE"
-          grep -q 'allowedContentTypes: \[Self.dylibType\]' "$FILE"
+          grep -q 'ipaPickerTypes' "$FILE"
+          grep -q 'dylibPickerTypes' "$FILE"
+          grep -q 'allowedContentTypes: Self.ipaPickerTypes' "$FILE"
+          grep -q 'allowedContentTypes: Self.dylibPickerTypes' "$FILE"
+          grep -q '\.zip' "$FILE"
+          grep -q '\.archive' "$FILE"
+          grep -q '\.unixExecutable' "$FILE"
+          grep -q '\.data' "$FILE"
           grep -q 'requiredExtension: "ipa"' "$FILE"
           grep -q 'requiredExtension: "dylib"' "$FILE"
+          grep -q 'isValidIPA' "$FILE"
+          grep -q 'isValidMachO' "$FILE"
+          grep -q 'fileDialogBrowserOptions(.displayFileExtensions)' "$FILE"
 
           grep -q 'UTImportedTypeDeclarations:' "$PROJECT"
           ! grep -q 'UTExportedTypeDeclarations:' "$PROJECT"
           grep -q 'UTTypeIdentifier: com.apple.itunes.ipa' "$PROJECT"
           grep -q 'UTTypeIdentifier: com.apple.mach-o-dylib' "$PROJECT"
-          grep -q 'public.filename-extension:' "$PROJECT"
-          grep -q -- '- ipa' "$PROJECT"
-          grep -q -- '- dylib' "$PROJECT"
-
-          ! grep -q 'com.nightvibes33.azula.ipa' "$FILE" "$PROJECT"
-          ! grep -q 'com.nightvibes33.azula.dylib' "$FILE" "$PROJECT"
 
       - name: Generate Xcode project
         shell: bash
@@ -126,8 +129,8 @@ jobs:
           echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|TARGETED_DEVICE_FAMILY|MARKETING_VERSION|CURRENT_PROJECT_VERSION'
           echo "$SETTINGS" | grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 27.0'
           echo "$SETTINGS" | grep -q 'TARGETED_DEVICE_FAMILY = 1'
-          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.4'
-          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 7'
+          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.5'
+          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 8'
 
       - name: Build unsigned real-device app
         shell: bash
@@ -161,8 +164,8 @@ jobs:
 
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$PLIST")" = "27.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$PLIST")" = "1"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "2.1.4"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "7"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "2.1.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "8"
 
           IPA_UTI="$(/usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeIdentifier' "$PLIST")"
           IPA_EXT="$(/usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:0' "$PLIST")"

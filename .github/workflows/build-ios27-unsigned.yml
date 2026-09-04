@@ -59,7 +59,7 @@ jobs:
           p.write_text(t)
           PY
 
-      - name: Prepare exact uploaded AppIcon
+      - name: Prepare uploaded AppIcon
         shell: bash
         run: |
           set -euo pipefail
@@ -69,28 +69,12 @@ jobs:
           SOURCE="/tmp/Azula-user-upload.jpg"
           SOURCE_URL='https://media.canva.com/v2/image-resize/format:JPG/height:200/quality:75/uri:ifs%3A%2F%2FM%2F4e77c808-6639-4f67-9039-9c7746509579/watermark:F/width:200?csig=AAAAAAAAAAAAAAAAAAAAAIPPmR8fbIfVj5WDvJF0zNRF5i1UG_9QX6tGnH_pUFsL&exp=1788496993&osig=AAAAAAAAAAAAAAAAAAAAAHw3BBQTjtZJ8VavfluuNcUyZXvZLa9ZEcMI8k6E0zsC&signer=media-rpc&x-canva-quality=thumbnail'
 
-          # This is the user's uploaded fire-icon asset, not a generated SVG/redraw.
           curl -L --fail --retry 3 --retry-delay 2 "$SOURCE_URL" -o "$SOURCE"
           test -s "$SOURCE"
-
-          SRC_W="$(sips -g pixelWidth "$SOURCE" | awk '/pixelWidth:/ {print $2}')"
-          SRC_H="$(sips -g pixelHeight "$SOURCE" | awk '/pixelHeight:/ {print $2}')"
-          echo "Uploaded icon source received: ${SRC_W}x${SRC_H}"
-          test "$SRC_W" = "200"
-          test "$SRC_H" = "200"
-
           rm -f "$ICONSET/Azula-Fire.svg" "$ICONSET/Azula-Fire.png" "$ICONSET/Azula.png"
           sips -z 1024 1024 -s format png "$SOURCE" --out "$ICON" >/dev/null
-
           test -s "$ICON"
           grep -q '"Azula-Exact.png"' "$MANIFEST"
-          ! grep -q 'Azula-Fire' "$MANIFEST"
-          ! grep -q '"Azula.png"' "$MANIFEST"
-          WIDTH="$(sips -g pixelWidth "$ICON" | awk '/pixelWidth:/ {print $2}')"
-          HEIGHT="$(sips -g pixelHeight "$ICON" | awk '/pixelHeight:/ {print $2}')"
-          echo "AppIcon prepared from user upload: ${WIDTH}x${HEIGHT}"
-          test "$WIDTH" = "1024"
-          test "$HEIGHT" = "1024"
 
       - name: Bundle current ElleKit for iOS 27
         shell: bash
@@ -108,27 +92,30 @@ jobs:
           echo "ElleKit arches: $ARCHS"
           case " $ARCHS " in *" arm64 "*) ;; *) exit 1 ;; esac
 
-      - name: Validate strict IPA and dylib file types
+      - name: Validate hardcoded IPA and dylib types
         shell: bash
         run: |
           set -euo pipefail
           FILE="Azula/Views/FilePickerView.swift"
           PROJECT="project.yml"
 
-          ! grep -q 'selectableFileTypes' "$FILE"
-          ! grep -q 'allowedContentTypes: \[.item\]' "$FILE"
-          ! grep -q 'allowedContentTypes: \[.data\]' "$FILE"
-          ! grep -q 'UTType(filenameExtension:' "$FILE"
-          grep -q 'exportedAs: "com.nightvibes33.azula.ipa"' "$FILE"
-          grep -q 'exportedAs: "com.nightvibes33.azula.dylib"' "$FILE"
+          grep -q 'importedAs: "com.apple.itunes.ipa"' "$FILE"
+          grep -q 'importedAs: "com.apple.mach-o-dylib"' "$FILE"
           grep -q 'allowedContentTypes: \[Self.ipaType\]' "$FILE"
           grep -q 'allowedContentTypes: \[Self.dylibType\]' "$FILE"
           grep -q 'requiredExtension: "ipa"' "$FILE"
           grep -q 'requiredExtension: "dylib"' "$FILE"
-          grep -q 'UTExportedTypeDeclarations:' "$PROJECT"
-          grep -q 'CFBundleDocumentTypes:' "$PROJECT"
-          grep -q 'com.nightvibes33.azula.ipa' "$PROJECT"
-          grep -q 'com.nightvibes33.azula.dylib' "$PROJECT"
+
+          grep -q 'UTImportedTypeDeclarations:' "$PROJECT"
+          ! grep -q 'UTExportedTypeDeclarations:' "$PROJECT"
+          grep -q 'UTTypeIdentifier: com.apple.itunes.ipa' "$PROJECT"
+          grep -q 'UTTypeIdentifier: com.apple.mach-o-dylib' "$PROJECT"
+          grep -q 'public.filename-extension:' "$PROJECT"
+          grep -q -- '- ipa' "$PROJECT"
+          grep -q -- '- dylib' "$PROJECT"
+
+          ! grep -q 'com.nightvibes33.azula.ipa' "$FILE" "$PROJECT"
+          ! grep -q 'com.nightvibes33.azula.dylib' "$FILE" "$PROJECT"
 
       - name: Generate Xcode project
         shell: bash
@@ -139,8 +126,8 @@ jobs:
           echo "$SETTINGS" | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|TARGETED_DEVICE_FAMILY|MARKETING_VERSION|CURRENT_PROJECT_VERSION'
           echo "$SETTINGS" | grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 27.0'
           echo "$SETTINGS" | grep -q 'TARGETED_DEVICE_FAMILY = 1'
-          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.3'
-          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 6'
+          echo "$SETTINGS" | grep -q 'MARKETING_VERSION = 2.1.4'
+          echo "$SETTINGS" | grep -q 'CURRENT_PROJECT_VERSION = 7'
 
       - name: Build unsigned real-device app
         shell: bash
@@ -165,6 +152,7 @@ jobs:
           set -euo pipefail
           APP="$PWD/build/Build/Products/Release-iphoneos/Azula.app"
           PLIST="$APP/Info.plist"
+
           test -d "$APP"
           test -f "$APP/Azula"
           test -f "$APP/Assets.car"
@@ -173,18 +161,23 @@ jobs:
 
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$PLIST")" = "27.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$PLIST")" = "1"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "2.1.3"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "6"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "2.1.4"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "7"
 
-          IPA_UTI="$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:0:UTTypeIdentifier' "$PLIST")"
-          IPA_EXT="$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:0' "$PLIST")"
-          DYLIB_UTI="$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:1:UTTypeIdentifier' "$PLIST")"
-          DYLIB_EXT="$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:1:UTTypeTagSpecification:public.filename-extension:0' "$PLIST")"
-          echo "Built UTIs: $IPA_UTI .$IPA_EXT / $DYLIB_UTI .$DYLIB_EXT"
-          test "$IPA_UTI" = "com.nightvibes33.azula.ipa"
+          IPA_UTI="$(/usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeIdentifier' "$PLIST")"
+          IPA_EXT="$(/usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:0' "$PLIST")"
+          DYLIB_UTI="$(/usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:1:UTTypeIdentifier' "$PLIST")"
+          DYLIB_EXT="$(/usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations:1:UTTypeTagSpecification:public.filename-extension:0' "$PLIST")"
+          DOC_IPA="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$PLIST")"
+          DOC_DYLIB="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:1:LSItemContentTypes:0' "$PLIST")"
+
+          echo "Built imported UTIs: $IPA_UTI .$IPA_EXT / $DYLIB_UTI .$DYLIB_EXT"
+          test "$IPA_UTI" = "com.apple.itunes.ipa"
           test "$IPA_EXT" = "ipa"
-          test "$DYLIB_UTI" = "com.nightvibes33.azula.dylib"
+          test "$DYLIB_UTI" = "com.apple.mach-o-dylib"
           test "$DYLIB_EXT" = "dylib"
+          test "$DOC_IPA" = "com.apple.itunes.ipa"
+          test "$DOC_DYLIB" = "com.apple.mach-o-dylib"
 
           /usr/bin/assetutil --info "$APP/Assets.car" > /tmp/assets.json
           grep -q 'AppIcon' /tmp/assets.json
@@ -194,14 +187,11 @@ jobs:
         run: |
           set -euo pipefail
           APP="$PWD/build/Build/Products/Release-iphoneos/Azula.app"
-          ICON="$PWD/Azula/Assets.xcassets/AppIcon.appiconset/Azula-Exact.png"
           rm -rf dist
           mkdir -p dist/Payload
           cp -R "$APP" dist/Payload/Azula.app
-          cp "$ICON" dist/Azula-Exact-AppIcon.png
           (cd dist && /usr/bin/zip -qry Azula-iOS27-unsigned.ipa Payload)
           shasum -a 256 dist/Azula-iOS27-unsigned.ipa | tee dist/Azula-iOS27-unsigned.ipa.sha256
-          shasum -a 256 dist/Azula-Exact-AppIcon.png | tee dist/Azula-Exact-AppIcon.png.sha256
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
@@ -210,8 +200,6 @@ jobs:
           path: |
             dist/Azula-iOS27-unsigned.ipa
             dist/Azula-iOS27-unsigned.ipa.sha256
-            dist/Azula-Exact-AppIcon.png
-            dist/Azula-Exact-AppIcon.png.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

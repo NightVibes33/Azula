@@ -387,8 +387,13 @@ struct FilePickerView: View {
     private func firstBytes(of url: URL, count: Int = 4) -> [UInt8] {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: count), let data else { return [] }
-        return Array(data)
+
+        do {
+            guard let data = try handle.read(upToCount: count) else { return [] }
+            return Array(data)
+        } catch {
+            return []
+        }
     }
 
     private func isValidIPA(_ url: URL) -> Bool {

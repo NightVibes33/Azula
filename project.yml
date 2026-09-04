@@ -48,42 +48,41 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        UTExportedTypeDeclarations:
-          - UTTypeIdentifier: com.nightvibes33.azula.ipa
-            UTTypeDescription: iOS Application Package
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.apple.itunes.ipa
+            UTTypeDescription: iOS App
             UTTypeConformsTo:
-              - public.archive
               - public.data
-              - public.content
             UTTypeTagSpecification:
               public.filename-extension:
                 - ipa
-          - UTTypeIdentifier: com.nightvibes33.azula.dylib
+              public.mime-type:
+                - application/x-ios-app
+          - UTTypeIdentifier: com.apple.mach-o-dylib
             UTTypeDescription: Mach-O Dynamic Library
             UTTypeConformsTo:
-              - public.unix-executable
               - public.data
-              - public.content
+              - public.unix-executable
             UTTypeTagSpecification:
               public.filename-extension:
                 - dylib
         CFBundleDocumentTypes:
-          - CFBundleTypeName: iOS Application Package
+          - CFBundleTypeName: iOS App
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
-              - com.nightvibes33.azula.ipa
+              - com.apple.itunes.ipa
           - CFBundleTypeName: Mach-O Dynamic Library
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
-              - com.nightvibes33.azula.dylib
+              - com.apple.mach-o-dylib
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nightvibes33.azula
         PRODUCT_NAME: Azula
-        MARKETING_VERSION: 2.1.3
-        CURRENT_PROJECT_VERSION: 6
+        MARKETING_VERSION: 2.1.4
+        CURRENT_PROJECT_VERSION: 7
         IPHONEOS_DEPLOYMENT_TARGET: 27.0
         SWIFT_VERSION: 5.0
         TARGETED_DEVICE_FAMILY: "1"
